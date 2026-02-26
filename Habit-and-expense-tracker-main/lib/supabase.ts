@@ -3,24 +3,25 @@ import { createClient } from '@supabase/supabase-js'
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-let supabase: ReturnType<typeof createClient>
+if (!supabaseUrl) {
+  console.warn('Missing NEXT_PUBLIC_SUPABASE_URL - using localStorage fallback')
+}
+if (!supabaseAnonKey) {
+  console.warn('Missing NEXT_PUBLIC_SUPABASE_ANON_KEY - using localStorage fallback')
+}
 
-// For MVP development, use dummy values when not configured
-if (!supabaseUrl || !supabaseAnonKey ||
-    supabaseUrl.includes('your_supabase') ||
-    supabaseAnonKey.includes('your_supabase')) {
-  supabase = createClient(
-    'https://dummy.supabase.co',
-    'dummy-anon-key',
-    {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-      },
-    }
-  )
-} else {
-  supabase = createClient(supabaseUrl, supabaseAnonKey)
+let supabase: ReturnType<typeof createClient> | null = null
+
+// Initialize Supabase if environment variables are configured
+if (supabaseUrl && supabaseAnonKey && 
+    !supabaseUrl.includes('your_supabase') && 
+    !supabaseAnonKey.includes('your_supabase')) {
+  supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+    },
+  })
 }
 
 export { supabase }

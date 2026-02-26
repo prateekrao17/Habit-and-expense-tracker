@@ -53,9 +53,9 @@ export default function SeriesTicker({ userId }: { userId: string }) {
     const newBest = Math.max(newSequence, habit.best_sequence)
 
     // Update habit
-    // @ts-ignore
     const { error: habitError } = await supabase
       .from('habits_series')
+      // @ts-ignore
       .update({
         current_sequence: newSequence,
         best_sequence: newBest,
@@ -66,6 +66,7 @@ export default function SeriesTicker({ userId }: { userId: string }) {
     // Log the tick
     const { error: logError } = await supabase
       .from('daily_logs')
+      // @ts-ignore
       .insert({
         user_id: userId,
         habit_id: habit.id,

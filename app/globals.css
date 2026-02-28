@@ -2,36 +2,232 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  :root {
-    --background: 10 10 10; /* #0a0a0a */
-    --foreground: 255 255 255; /* white */
-    --card: 26 26 26; /* #1a1a1a */
-    --card-foreground: 255 255 255;
-    --popover: 26 26 26;
-    --popover-foreground: 255 255 255;
-    --primary: 59 130 246; /* #3b82f6 */
-    --primary-foreground: 255 255 255;
-    --secondary: 39 39 42; /* #27272a */
-    --secondary-foreground: 255 255 255;
-    --muted: 39 39 42;
-    --muted-foreground: 161 161 170; /* #a1a1aa */
-    --accent: 39 39 42;
-    --accent-foreground: 255 255 255;
-    --destructive: 239 68 68; /* #ef4444 */
-    --destructive-foreground: 255 255 255;
-    --border: 39 39 42; /* #27272a */
-    --input: 39 39 42;
-    --ring: 59 130 246;
-    --radius: 0.5rem;
-  }
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
-@layer base {
-  * {
-    @apply border-border;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
+body {
+  background-color: #0a0a0a;
+  color: #ffffff;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0a0a0a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #404040;
+  border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #505050;
+}
+
+input, 
+textarea, 
+select {
+  background-color: #0a0a0a;
+  border: 1.5px solid #2a2a2a;
+  color: #ffffff;
+  padding: 0.875rem 1rem;
+  border-radius: 0.75rem;
+  font-size: 0.9375rem;
+  transition: all 0.2s ease;
+  outline: none;
+}
+
+input:hover,
+textarea:hover,
+select:hover {
+  border-color: #404040;
+}
+
+input:focus, 
+textarea:focus, 
+select:focus {
+  border-color: #3b82f6;
+  background-color: #0f0f0f;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+input::placeholder, 
+textarea::placeholder {
+  color: #666666;
+}
+
+input:disabled,
+textarea:disabled,
+select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background-color: #0a0a0a;
+}
+
+button {
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: 500;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+table {
+  border-spacing: 0;
+}
+
+thead th {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.75rem;
+}
+
+tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+tbody tr:hover {
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+/* Modal Styles */
+.modal-backdrop {
+  backdrop-filter: blur(12px);
+  background-color: rgba(0, 0, 0, 0.85);
+}
+
+/* Card Styles */
+.stat-card {
+  background: linear-gradient(145deg, #1a1a1a 0%, #141414 100%);
+  border: 1px solid #2a2a2a;
+  border-radius: 1rem;
+  padding: 1.5rem;
+  transition: all 0.3s ease;
+}
+
+.stat-card:hover {
+  border-color: #3a3a3a;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  transform: translateY(-2px);
+}
+
+/* Modal Content */
+.modal-content {
+  background: #1e1e1e;
+  border: 2px solid #2a2a2a;
+  border-radius: 1.5rem;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+
+/* Input Focus Glow */
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: #3b82f6;
+  background-color: #0a0a0a;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);
+}
+
+/* Button Primary */
+.btn-primary {
+  background: linear-gradient(135deg, #ffffff 0%, #e5e5e5 100%);
+  color: #000000;
+  font-weight: 600;
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.75rem;
+  border: none;
+  box-shadow: 0 4px 12px rgba(255, 255, 255, 0.1);
+  transition: all 0.2s ease;
+}
+
+.btn-primary:hover {
+  background: linear-gradient(135deg, #f5f5f5 0%, #d5d5d5 100%);
+  box-shadow: 0 6px 16px rgba(255, 255, 255, 0.15);
+  transform: translateY(-1px);
+}
+
+/* Button Secondary */
+.btn-secondary {
+  background: #1a1a1a;
+  color: #ffffff;
+  font-weight: 500;
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.75rem;
+  border: 1.5px solid #2a2a2a;
+  transition: all 0.2s ease;
+}
+
+.btn-secondary:hover {
+  background: #252525;
+  border-color: #3a3a3a;
+}
+
+/* Progress Bar */
+.progress-bar {
+  background: #2a2a2a;
+  border-radius: 9999px;
+  height: 0.5rem;
+  overflow: hidden;
+}
+
+.progress-fill {
+  background: linear-gradient(90deg, #10b981 0%, #34d399 100%);
+  height: 100%;
+  border-radius: 9999px;
+  transition: width 0.3s ease;
+}
+
+/* Force consistent styling across environments */
+.modal-backdrop {
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  background-color: rgba(0, 0, 0, 0.85) !important;
+}
+
+.modal-content {
+  background: #1e1e1e !important;
+  border: 2px solid #2a2a2a !important;
+  border-radius: 1.5rem !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6) !important;
+}
+
+/* Ensure buttons match localhost */
+.btn-primary {
+  background: linear-gradient(135deg, #ffffff 0%, #e5e5e5 100%) !important;
+  color: #000000 !important;
+  font-weight: 600 !important;
+  border: none !important;
+  box-shadow: 0 4px 12px rgba(255, 255, 255, 0.1) !important;
+}
+
+.btn-secondary {
+  background: #1a1a1a !important;
+  color: #ffffff !important;
+  border: 1.5px solid #2a2a2a !important;
+}
+
+/* Input styling consistency */
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15) !important;
 }

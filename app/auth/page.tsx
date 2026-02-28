@@ -1,174 +1,215 @@
 'use client'
-
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { login, signup } from '@/lib/auth'
-import { Lock, Eye, EyeOff, UserPlus, LogIn } from 'lucide-react'
+import { 
+  signup, 
+  login
+} from '@/lib/auth'
+import { Lock, Mail, User, Eye, EyeOff, ArrowLeft } from 'lucide-react'
 
 export default function AuthPage() {
-  const router = useRouter()
-  const [isLogin, setIsLogin] = useState(true)
+  const [mode, setMode] = useState<'login' | 'signup'>('login')
+  
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  
+  const router = useRouter()
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
     setLoading(true)
 
-    try {
-      if (isLogin) {
-        const result = await login(username, password)
-        if (result.success) {
-          router.push('/')
-        } else {
-          setError(result.error || 'Login failed')
-        }
+    if (mode === 'login') {
+      // Login
+      const result = await login(username, password)
+      if (result.success) {
+        router.push('/')
       } else {
-        if (password !== confirmPassword) {
-          setError('Passwords do not match')
-          setLoading(false)
-          return
-        }
-        const result = await signup(username, password)
-        if (result.success) {
-          router.push('/')
-        } else {
-          setError(result.error || 'Signup failed')
-        }
+        setError(result.error || 'Login failed')
       }
-    } catch (err: any) {
-      setError(err.message || 'An error occurred')
-    } finally {
-      setLoading(false)
+    } else {
+      // Signup
+      if (username.length < 3) {
+        setError('Username must be at least 3 characters')
+        setLoading(false)
+        return
+      }
+      if (password.length < 6) {
+        setError('Password must be at least 6 characters')
+        setLoading(false)
+        return
+      }
+      if (password !== confirmPassword) {
+        setError('Passwords do not match')
+        setLoading(false)
+        return
+      }
+
+      // Create account
+      const result = await signup(username, password)
+      if (result.success) {
+        router.push('/')
+      } else {
+        setError(result.error || 'Signup failed')
+      }
     }
+
+    setLoading(false)
+  }
+
+  function resetForm() {
+    setUsername('')
+    setPassword('')
+    setConfirmPassword('')
+    setError('')
   }
 
   return (
     <div className="min-h-screen bg-black flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-white mb-2">Life Tracker</h1>
-          <p className="text-zinc-400">Track your habits and expenses</p>
-        </div>
-
-        {/* Card */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-8">
-          {/* Tabs */}
-          <div className="flex gap-2 mb-6 bg-zinc-800/50 p-1 rounded-lg">
-            <button
-              onClick={() => {
-                setIsLogin(true)
-                setError('')
-                setConfirmPassword('')
-              }}
-              className={`flex-1 py-2 px-4 rounded font-medium transition flex items-center justify-center gap-2 ${
-                isLogin
-                  ? 'bg-white text-black'
-                  : 'text-zinc-400 hover:text-white'
-              }`}
-            >
-              <LogIn size={18} />
-              Login
-            </button>
-            <button
-              onClick={() => {
-                setIsLogin(false)
-                setError('')
-                setConfirmPassword('')
-              }}
-              className={`flex-1 py-2 px-4 rounded font-medium transition flex items-center justify-center gap-2 ${
-                !isLogin
-                  ? 'bg-white text-black'
-                  : 'text-zinc-400 hover:text-white'
-              }`}
-            >
-              <UserPlus size={18} />
-              Signup
-            </button>
+        <div className="modal-content p-8">
+          <div className="flex justify-center mb-6">
+            <div className="bg-blue-500/10 p-4 rounded-full">
+              <Lock className="text-blue-500" size={32} />
+            </div>
           </div>
 
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Username */}
-            <div>
-              <label className="block text-zinc-400 text-sm mb-2">Username</label>
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="Enter username"
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition"
-                disabled={loading}
-              />
-            </div>
+          <h1 className="text-2xl font-bold text-white text-center mb-2">
+            {mode === 'login' && 'Welcome Back'}
+            {mode === 'signup' && 'Create Account'}
+          </h1>
+          <p className="text-zinc-400 text-center mb-6">
+            {mode === 'login' && 'Login to access your tracker'}
+            {mode === 'signup' && 'Create a new account to get started'}
+          </p>
 
-            {/* Password */}
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {mode === 'signup' && (
+              <div>
+                <label className="block text-zinc-400 text-sm font-medium mb-2">
+                  Username
+                </label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className="w-full pl-10"
+                    placeholder="johndoe"
+                    required
+                    autoFocus
+                  />
+                </div>
+              </div>
+            )}
+
+            {mode === 'login' && (
+              <div>
+                <label className="block text-zinc-400 text-sm font-medium mb-2">
+                  Username
+                </label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className="w-full pl-10"
+                    placeholder="johndoe"
+                    required
+                    autoFocus
+                  />
+                </div>
+              </div>
+            )}
+
             <div>
-              <label className="block text-zinc-400 text-sm mb-2">Password</label>
+              <label className="block text-zinc-400 text-sm font-medium mb-2">
+                Password
+              </label>
               <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter password"
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition"
-                  disabled={loading}
+                  className="w-full pl-10 pr-10"
+                  placeholder="••••••••"
+                  required
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-2.5 text-zinc-500 hover:text-white transition"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
                 >
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
             </div>
 
-            {/* Confirm Password (Signup only) */}
-            {!isLogin && (
+            {mode === 'signup' && (
               <div>
-                <label className="block text-zinc-400 text-sm mb-2">Confirm Password</label>
+                <label className="block text-zinc-400 text-sm font-medium mb-2">
+                  Confirm Password
+                </label>
                 <input
-                  type={showPassword ? 'text' : 'password'}
+                  type="password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Confirm password"
-                  className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500 transition"
-                  disabled={loading}
+                  className="w-full"
+                  placeholder="••••••••"
+                  required
                 />
               </div>
             )}
 
-            {/* Error Message */}
             {error && (
-              <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-red-500 text-sm">
+              <div className="bg-red-500/10 border border-red-500/20 text-red-500 px-4 py-3 rounded-lg text-sm">
                 {error}
               </div>
             )}
 
-            {/* Submit Button */}
             <button
               type="submit"
-              disabled={loading || !username || !password || (!isLogin && !confirmPassword)}
-              className="w-full bg-white text-black py-2 px-4 rounded-lg hover:bg-zinc-200 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              disabled={loading}
+              className="btn-primary w-full"
             >
-              <Lock size={18} />
-              {loading ? 'Loading...' : isLogin ? 'Login' : 'Signup'}
+              {loading ? 'Please wait...' : mode === 'login' ? 'Login' : 'Sign Up'}
             </button>
-          </form>
 
-          {/* Info Text */}
-          <p className="text-zinc-500 text-xs text-center mt-6">
-            {isLogin
-              ? 'Don\'t have an account? Use the Signup tab'
-              : 'Already have an account? Use the Login tab'}
-          </p>
+            <div className="text-center text-zinc-500 text-sm">
+              {mode === 'login' ? (
+                <>
+                  Don't have an account?{' '}
+                  <button
+                    type="button"
+                    onClick={() => { setMode('signup'); resetForm(); }}
+                    className="text-blue-500 hover:underline"
+                  >
+                    Sign up
+                  </button>
+                </>
+              ) : (
+                <>
+                  Already have an account?{' '}
+                  <button
+                    type="button"
+                    onClick={() => { setMode('login'); resetForm(); }}
+                    className="text-blue-500 hover:underline"
+                  >
+                    Login
+                  </button>
+                </>
+              )}
+            </div>
+          </form>
         </div>
       </div>
     </div>

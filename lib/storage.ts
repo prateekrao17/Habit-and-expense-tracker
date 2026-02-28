@@ -20,18 +20,18 @@ export interface Expense {
   created_at?: string
 }
 
-export const EXPENSE_CATEGORIES = [
+export let EXPENSE_CATEGORIES = [
   'Food',
-  'Transportation',
+  'Transport',
   'Entertainment',
-  'Shopping',
   'Bills',
-  'Healthcare',
+  'Rent',
+  'Trip',
+  'Health',
+  'Shopping',
   'Education',
-  'Travel',
-  'Utilities',
-  'Other',
-  'Subscriptions'
+  'Investment',
+  'Other'
 ]
 
 function getUserKey(baseKey: string, userId?: string): string {
@@ -176,6 +176,55 @@ export async function tickHabit(habitId: string): Promise<boolean> {
   return true
 }
 
+export async function untickHabit(habitId: string, date: string): Promise<boolean> {
+  if (typeof window === 'undefined') return false
+  
+  const userId = getCurrentUserId()
+  if (!userId) return false
+  
+  const habits = await getHabits()
+  const habit = habits.find(h => h.id === habitId)
+  
+  if (!habit || !habit.completions) return false
+  
+  // Remove the completion for this date
+  habit.completions = habit.completions.filter(c => c.date !== date)
+  
+  // Recalculate streak from the most recent completion
+  if (habit.completions.length === 0) {
+    habit.current_streak = 0
+    habit.last_completed = ''
+  } else {
+    // Sort completions by date
+    const sortedCompletions = habit.completions.sort((a, b) => 
+      new Date(b.date).getTime() - new Date(a.date).getTime()
+    )
+    
+    habit.last_completed = sortedCompletions[0].date
+    
+    // Calculate streak from most recent completion
+    let streak = 1
+    let checkDate = new Date(sortedCompletions[0].date)
+    
+    for (let i = 1; i <= 365; i++) {
+      checkDate.setDate(checkDate.getDate() - 1)
+      const checkStr = getDateStr(checkDate)
+      
+      if (!habit.completions.some(c => c.date === checkStr)) {
+        break
+      }
+      streak++
+    }
+    
+    habit.current_streak = streak
+  }
+  
+  const key = getUserKey('habits', userId)
+  localStorage.setItem(key, JSON.stringify(habits))
+  
+  return true
+}
+
 export async function deleteHabit(habitId: string): Promise<boolean> {
   if (typeof window === 'undefined') return false
   
@@ -306,4 +355,44 @@ export function getCategoryBreakdown(
       percentage: total > 0 ? Math.round((amount / total) * 100) : 0
     }))
     .sort((a, b) => b.total - a.total)
+}
+
+// Custom Category Management
+export function getCustomCategories(): string[] {
+  if (typeof window === 'undefined') return []
+  const userId = getCurrentUserId()
+  if (!userId) return []
+  
+  const stored = localStorage.getItem(`custom_categories_${userId}`)
+  return stored ? JSON.parse(stored) : []
+}
+
+export function saveCustomCategory(category: string): boolean {
+  if (typeof window === 'undefined') return false
+  const userId = getCurrentUserId()
+  if (!userId) return false
+  
+  const custom = getCustomCategories()
+  if (custom.includes(category) || EXPENSE_CATEGORIES.includes(category)) {
+    return false // Already exists
+  }
+  
+  custom.push(category)
+  localStorage.setItem(`custom_categories_${userId}`, JSON.stringify(custom))
+  return true
+}
+
+export function getAllExpenseCategories(): string[] {
+  return [...EXPENSE_CATEGORIES, ...getCustomCategories()]
+}
+
+export function deleteCustomCategory(category: string): boolean {
+  if (typeof window === 'undefined') return false
+  const userId = getCurrentUserId()
+  if (!userId) return false
+  
+  const custom = getCustomCategories()
+  const filtered = custom.filter(c => c !== category)
+  localStorage.setItem(`custom_categories_${userId}`, JSON.stringify(filtered))
+  return true
 }

@@ -4,7 +4,8 @@ import { useRouter } from 'next/navigation'
 import { 
   getHabits, 
   addHabit, 
-  tickHabit, 
+  tickHabit,
+  untickHabit,
   deleteHabit,
   getCurrentWeekDates,
   getMonthDates,
@@ -17,6 +18,9 @@ import {
   getYearExpenses,
   getMonthlyExpenseBreakdown,
   getCategoryBreakdown,
+  getAllExpenseCategories,
+  saveCustomCategory,
+  deleteCustomCategory,
   EXPENSE_CATEGORIES,
   type Habit,
   type Expense
@@ -61,6 +65,11 @@ export default function Home() {
   const [expenseView, setExpenseView] = useState<'month' | 'year'>('month')
   const [expenseViewDate, setExpenseViewDate] = useState(new Date())
 
+  // Custom Categories State
+  const [showAddCategory, setShowAddCategory] = useState(false)
+  const [newCategory, setNewCategory] = useState('')
+  const [allCategories, setAllCategories] = useState<string[]>([])
+
   // User State
   const [username, setUsername] = useState('')
   const [userId, setUserId] = useState('')
@@ -82,6 +91,7 @@ export default function Home() {
     const expensesData = await getExpenses()
     setHabits(habitsData)
     setExpenses(expensesData)
+    setAllCategories(getAllExpenseCategories())
   }
 
   // Habit Functions
@@ -99,6 +109,13 @@ export default function Home() {
 
   async function handleTickHabit(habitId: string) {
     const success = await tickHabit(habitId)
+    if (success) {
+      await loadData()
+    }
+  }
+
+  async function handleUntickHabit(habitId: string, date: string) {
+    const success = await untickHabit(habitId, date)
     if (success) {
       await loadData()
     }
@@ -263,7 +280,7 @@ export default function Home() {
             {/* Habits Controls */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
               <div className="flex items-center gap-2">
-                <div className="flex bg-zinc-900 border border-zinc-800 rounded-lg p-1">
+                <div className="flex bg-[#1a1a1a] border border-zinc-800 rounded-xl p-1.5 shadow-soft">
                   <button
                     onClick={() => setHabitView('week')}
                     className={`px-4 py-2 rounded text-sm font-medium transition ${
@@ -297,7 +314,7 @@ export default function Home() {
                 </div>
 
                 {habitView !== 'week' && (
-                  <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2">
+                    <div className="flex items-center gap-2 bg-[#1a1a1a] border border-zinc-800 rounded-xl px-4 py-2.5 shadow-soft">
                     <button
                       onClick={() => {
                         const newDate = new Date(habitViewDate)
@@ -337,7 +354,7 @@ export default function Home() {
 
               <button
                 onClick={() => setShowHabitModal(true)}
-                className="bg-white text-black px-4 py-2 rounded-lg hover:bg-zinc-200 transition font-medium flex items-center gap-2"
+                className="bg-white text-black px-5 py-2.5 rounded-xl hover:bg-zinc-100 transition font-semibold flex items-center gap-2 shadow-medium"
               >
                 <Plus size={18} />
                 Add Habit
@@ -352,7 +369,7 @@ export default function Home() {
                   if (!stats) return null
 
                   return (
-                    <div key={habit.id} className="bg-zinc-900 border border-zinc-800 rounded-lg p-4">
+                    <div key={habit.id} className="bg-[#1a1a1a] border border-zinc-800 rounded-xl p-5 hover:border-zinc-700 transition shadow-soft">
                       <h3 className="text-white font-semibold mb-3">{habit.name}</h3>
                       <div className="space-y-2">
                         <div className="flex justify-between text-sm">
@@ -390,12 +407,12 @@ export default function Home() {
                 </p>
               </div>
             ) : (
-              <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
+              <div className="bg-[#1a1a1a] border border-zinc-800 rounded-xl overflow-hidden shadow-medium">
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead className="bg-zinc-800/50">
                       <tr>
-                        <th className="text-left px-4 py-3 text-zinc-400 text-sm font-medium sticky left-0 bg-zinc-800/50 z-10">
+                        <th className="text-left px-4 py-3 text-zinc-400 text-sm font-semibold sticky left-0 bg-zinc-900/90 backdrop-blur-sm z-10">
                           Habit
                         </th>
                         {habitView === 'week' && weekDates.map(date => {
@@ -445,19 +462,26 @@ export default function Home() {
                             const completed = checkHabitCompleted(habit.id, date)
                             const isToday = date === new Date().toISOString().split('T')[0]
                             const isPast = date < new Date().toISOString().split('T')[0]
+                            const isFuture = date > new Date().toISOString().split('T')[0]
                             
                             return (
                               <td key={date} className="text-center px-2 py-4">
                                 <button
-                                  onClick={() => handleTickHabit(habit.id)}
-                                  disabled={completed}
+                                  onClick={() => {
+                                    if (completed) {
+                                      handleUntickHabit(habit.id, date)
+                                    } else {
+                                      handleTickHabit(habit.id)
+                                    }
+                                  }}
+                                  disabled={isFuture}
                                   className={`inline-flex items-center justify-center w-8 h-8 rounded-full transition ${
                                     completed
-                                      ? 'bg-green-500 text-white'
+                                      ? 'bg-green-500 text-white hover:bg-green-600'
+                                      : isFuture
+                                      ? 'bg-zinc-800 text-zinc-700 cursor-not-allowed'
                                       : isToday
                                       ? 'bg-blue-500/20 text-blue-500 hover:bg-blue-500 hover:text-white'
-                                      : isPast
-                                      ? 'bg-zinc-800 text-zinc-600'
                                       : 'bg-zinc-800 text-zinc-500 hover:bg-zinc-700'
                                   }`}
                                 >
@@ -604,7 +628,7 @@ export default function Home() {
 
               <button
                 onClick={() => setShowExpenseModal(true)}
-                className="bg-white text-black px-4 py-2 rounded-lg hover:bg-zinc-200 transition font-medium flex items-center gap-2"
+                className="bg-white text-black px-5 py-2.5 rounded-xl hover:bg-zinc-100 transition font-semibold flex items-center gap-2 shadow-medium"
               >
                 <Plus size={18} />
                 Add Expense
@@ -613,7 +637,7 @@ export default function Home() {
 
             {/* Expenses Dashboard */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-              <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6">
+              <div className="bg-[#1a1a1a] border border-zinc-800 rounded-xl p-6 shadow-soft hover:shadow-medium transition">
                 <div className="flex items-center gap-3 mb-2">
                   <div className="bg-blue-500/10 p-3 rounded-lg">
                     <DollarSign className="text-blue-500" size={24} />
@@ -629,7 +653,7 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6">
+              <div className="bg-[#1a1a1a] border border-zinc-800 rounded-xl p-6 shadow-soft hover:shadow-medium transition">
                 <div className="flex items-center gap-3 mb-2">
                   <div className="bg-green-500/10 p-3 rounded-lg">
                     <Calendar className="text-green-500" size={24} />
@@ -645,7 +669,7 @@ export default function Home() {
                 </div>
               </div>
 
-              <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6">
+              <div className="bg-[#1a1a1a] border border-zinc-800 rounded-xl p-6 shadow-soft hover:shadow-medium transition">
                 <div className="flex items-center gap-3 mb-2">
                   <div className="bg-purple-500/10 p-3 rounded-lg">
                     <PieChart className="text-purple-500" size={24} />
@@ -696,7 +720,7 @@ export default function Home() {
             </div>
 
             {/* Recent Expenses List */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6">
+            <div className="bg-[#1a1a1a] border border-zinc-800 rounded-xl p-6 shadow-soft">
               <h3 className="text-white font-semibold mb-4">Recent Expenses</h3>
               {expenses.length === 0 ? (
                 <div className="text-center py-12">
@@ -718,7 +742,7 @@ export default function Home() {
                     .map(expense => (
                       <div
                         key={expense.id}
-                        className="flex justify-between items-center py-3 px-4 hover:bg-zinc-800/50 rounded-lg transition"
+                        className="flex justify-between items-center py-3 px-4 hover:bg-zinc-900/50 rounded-xl transition"
                       >
                         <div className="flex-1">
                           <div className="flex items-center gap-3">
@@ -759,32 +783,37 @@ export default function Home() {
 
       {/* Add Habit Modal */}
       {showHabitModal && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6 w-full max-w-md">
-            <h2 className="text-xl font-bold text-white mb-4">
+        <div className="fixed inset-0 modal-backdrop flex items-center justify-center p-4 z-50">
+          <div className="modal-content w-full max-w-md p-8">
+            <h2 className="text-2xl font-bold text-white mb-2">
               Add New Habit
             </h2>
+            <p className="text-zinc-500 text-sm mb-6">
+              Create a habit to track daily
+            </p>
+            
             <form onSubmit={handleAddHabit}>
               <input
                 type="text"
                 value={newHabitName}
                 onChange={(e) => setNewHabitName(e.target.value)}
                 placeholder="Habit name (e.g., Morning Meditation)"
-                className="w-full mb-4"
+                className="w-full mb-6"
                 autoFocus
               />
+              
               <div className="flex gap-3">
                 <button
                   type="button"
                   onClick={() => setShowHabitModal(false)}
-                  className="flex-1 border border-zinc-800 text-white py-2 px-4 rounded-lg hover:bg-zinc-800 transition"
+                  className="btn-secondary flex-1"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={!newHabitName.trim()}
-                  className="flex-1 bg-white text-black py-2 px-4 rounded-lg hover:bg-zinc-200 transition font-medium"
+                  className="btn-primary flex-1"
                 >
                   Add Habit
                 </button>
@@ -796,14 +825,18 @@ export default function Home() {
 
       {/* Add Expense Modal */}
       {showExpenseModal && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-6 w-full max-w-md">
-            <h2 className="text-xl font-bold text-white mb-4">
+        <div className="fixed inset-0 modal-backdrop flex items-center justify-center p-4 z-50">
+          <div className="modal-content w-full max-w-md p-8">
+            <h2 className="text-2xl font-bold text-white mb-2">
               Add New Expense
             </h2>
-            <form onSubmit={handleAddExpense}>
-              <div className="mb-3">
-                <label className="block text-zinc-400 text-sm mb-2">
+            <p className="text-zinc-500 text-sm mb-6">
+              Track your spending
+            </p>
+            
+            <form onSubmit={handleAddExpense} className="space-y-4">
+              <div>
+                <label className="block text-zinc-400 text-sm font-medium mb-2">
                   Amount (₹)
                 </label>
                 <input
@@ -816,22 +849,65 @@ export default function Home() {
                   autoFocus
                 />
               </div>
-              <div className="mb-3">
-                <label className="block text-zinc-400 text-sm mb-2">
-                  Category
-                </label>
+              
+              <div>
+                <div className="flex justify-between items-center mb-2">
+                  <label className="block text-zinc-400 text-sm font-medium">
+                    Category
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddCategory(!showAddCategory)}
+                    className="text-blue-500 text-xs hover:underline"
+                  >
+                    + Add New
+                  </button>
+                </div>
+                
+                {showAddCategory && (
+                  <div className="flex gap-2 mb-2">
+                    <input
+                      type="text"
+                      value={newCategory}
+                      onChange={(e) => setNewCategory(e.target.value)}
+                      placeholder="New category name"
+                      className="flex-1 text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (newCategory.trim()) {
+                          const success = saveCustomCategory(newCategory.trim())
+                          if (success) {
+                            setAllCategories(getAllExpenseCategories())
+                            setNewExpense({...newExpense, category: newCategory.trim()})
+                            setNewCategory('')
+                            setShowAddCategory(false)
+                          } else {
+                            alert('Category already exists')
+                          }
+                        }
+                      }}
+                      className="bg-green-500 text-white px-3 py-1 rounded text-sm hover:bg-green-600"
+                    >
+                      Add
+                    </button>
+                  </div>
+                )}
+                
                 <select
                   value={newExpense.category}
                   onChange={(e) => setNewExpense({...newExpense, category: e.target.value})}
                   className="w-full"
                 >
-                  {EXPENSE_CATEGORIES.map(cat => (
+                  {allCategories.map(cat => (
                     <option key={cat} value={cat}>{cat}</option>
                   ))}
                 </select>
               </div>
-              <div className="mb-4">
-                <label className="block text-zinc-400 text-sm mb-2">
+              
+              <div>
+                <label className="block text-zinc-400 text-sm font-medium mb-2">
                   Description (optional)
                 </label>
                 <input
@@ -842,18 +918,19 @@ export default function Home() {
                   className="w-full"
                 />
               </div>
-              <div className="flex gap-3">
+              
+              <div className="flex gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowExpenseModal(false)}
-                  className="flex-1 border border-zinc-800 text-white py-2 px-4 rounded-lg hover:bg-zinc-800 transition"
+                  className="btn-secondary flex-1"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={!newExpense.amount || parseFloat(newExpense.amount) <= 0}
-                  className="flex-1 bg-white text-black py-2 px-4 rounded-lg hover:bg-zinc-200 transition font-medium"
+                  className="btn-primary flex-1"
                 >
                   Add Expense
                 </button>

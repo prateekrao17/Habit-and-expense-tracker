@@ -22,14 +22,24 @@ export async function signup(
   username: string
 ): Promise<{ success: boolean; error?: string; user?: User }> {
   try {
-    // Check if email or username already exists
-    const { data: existing } = await (supabase
+    // Check if email already exists
+    const { data: emailExists } = await (supabase
       .from('users') as any)
       .select('id')
-      .or(`email.eq.${email},username.eq.${username}`)
+      .eq('email', email)
 
-    if (existing && existing.length > 0) {
-      return { success: false, error: 'Email or username already exists' }
+    if (emailExists && emailExists.length > 0) {
+      return { success: false, error: 'Email already exists' }
+    }
+
+    // Check if username already exists
+    const { data: usernameExists } = await (supabase
+      .from('users') as any)
+      .select('id')
+      .eq('username', username)
+
+    if (usernameExists && usernameExists.length > 0) {
+      return { success: false, error: 'Username already exists' }
     }
 
     // Create user
@@ -62,11 +72,20 @@ export async function login(
   password: string
 ): Promise<{ success: boolean; error?: string; user?: User }> {
   try {
-    // Search by email or username
-    const { data: users, error } = await (supabase
-      .from('users')
+    // Try to find by email first
+    let { data: users, error } = await (supabase
+      .from('users') as any)
       .select('*')
-      .or(`email.eq.${identifier},username.eq.${identifier}`) as any)
+      .eq('email', identifier)
+
+    // If not found by email, try username
+    if (!users || users.length === 0) {
+      const { data: usersByUsername } = await (supabase
+        .from('users') as any)
+        .select('*')
+        .eq('username', identifier)
+      users = usersByUsername
+    }
 
     if (error || !users || users.length === 0) {
       return { success: false, error: 'Invalid credentials' }

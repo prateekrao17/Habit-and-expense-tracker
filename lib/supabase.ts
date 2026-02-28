@@ -3,24 +3,35 @@ import { createClient } from '@supabase/supabase-js'
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-let supabase: ReturnType<typeof createClient>
+// Log configuration status
+console.log('[Supabase] Configuration check:', {
+  url: supabaseUrl ? '✓ Set' : '✗ Missing',
+  key: supabaseAnonKey ? '✓ Set' : '✗ Missing',
+})
 
-// For MVP development, use dummy values when not configured
-if (!supabaseUrl || !supabaseAnonKey ||
-    supabaseUrl.includes('your_supabase') ||
-    supabaseAnonKey.includes('your_supabase')) {
-  supabase = createClient(
-    'https://dummy.supabase.co',
-    'dummy-anon-key',
-    {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-      },
-    }
-  )
-} else {
-  supabase = createClient(supabaseUrl, supabaseAnonKey)
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error('[Supabase] ❌ Missing critical environment variables!')
+  console.error('[Supabase] URL:', supabaseUrl || 'MISSING')
+  console.error('[Supabase] Key:', supabaseAnonKey ? 'Set but hidden' : 'MISSING')
 }
 
-export { supabase }
+export const supabase = createClient(
+  supabaseUrl || 'https://placeholder.supabase.co',
+  supabaseAnonKey || 'placeholder-key',
+  {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+    global: {
+      headers: {
+        'x-application-name': 'life-tracker',
+      },
+    },
+  }
+)
+
+console.log('[Supabase] Client initialized:', {
+  url: supabaseUrl?.substring(0, 20) + '...',
+  hasKey: !!supabaseAnonKey,
+})

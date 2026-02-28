@@ -22,47 +22,80 @@ export async function signup(
   username: string
 ): Promise<{ success: boolean; error?: string; user?: User }> {
   try {
+    console.log('[Signup] Starting signup attempt', { email, username })
+
     // Check if email already exists
-    const { data: emailExists } = await (supabase
+    console.log('[Signup] Checking if email exists...')
+    const { data: emailExists, error: emailCheckError } = await (supabase
       .from('users') as any)
       .select('id')
       .eq('email', email)
 
+    if (emailCheckError) {
+      console.error('[Signup] Email check error:', emailCheckError)
+      return { success: false, error: `Email check failed: ${emailCheckError.message}` }
+    }
+
     if (emailExists && emailExists.length > 0) {
+      console.log('[Signup] Email already exists')
       return { success: false, error: 'Email already exists' }
     }
 
     // Check if username already exists
-    const { data: usernameExists } = await (supabase
+    console.log('[Signup] Checking if username exists...')
+    const { data: usernameExists, error: usernameCheckError } = await (supabase
       .from('users') as any)
       .select('id')
       .eq('username', username)
 
+    if (usernameCheckError) {
+      console.error('[Signup] Username check error:', usernameCheckError)
+      return { success: false, error: `Username check failed: ${usernameCheckError.message}` }
+    }
+
     if (usernameExists && usernameExists.length > 0) {
+      console.log('[Signup] Username already exists')
       return { success: false, error: 'Username already exists' }
     }
 
     // Create user
+    console.log('[Signup] Creating user...')
+    const userData = {
+      email,
+      username,
+      password_hash: hashPassword(password)
+    }
+    console.log('[Signup] User data to insert:', userData)
+
     const { data: newUser, error } = await (supabase
       .from('users') as any)
-      .insert({
-        email,
-        username,
-        password_hash: hashPassword(password)
-      })
+      .insert(userData)
       .select()
       .single()
 
-    if (error || !newUser) {
-      console.error('Signup error:', error)
-      return { success: false, error: 'Failed to create account' }
+    if (error) {
+      console.error('[Signup] Insert error:', error)
+      console.error('[Signup] Error details:', {
+        message: error.message,
+        code: (error as any).code,
+        details: (error as any).details,
+        hint: (error as any).hint
+      })
+      return { success: false, error: `Failed to create account: ${error.message}` }
     }
 
+    if (!newUser) {
+      console.error('[Signup] No user returned after insert')
+      return { success: false, error: 'Failed to create account: No data returned' }
+    }
+
+    console.log('[Signup] Success! Created user:', newUser.id)
     setSession(newUser)
     return { success: true, user: newUser }
-  } catch (error) {
-    console.error('Signup error:', error)
-    return { success: false, error: 'Signup failed' }
+  } catch (error: any) {
+    console.error('[Signup] Exception:', error)
+    console.error('[Signup] Exception stack:', error?.stack)
+    return { success: false, error: `Signup failed: ${error?.message || 'Unknown error'}` }
   }
 }
 
@@ -72,29 +105,46 @@ export async function login(
   password: string
 ): Promise<{ success: boolean; error?: string; user?: User }> {
   try {
+    console.log('[Login] Starting login attempt', { identifier })
+
     // Try to find by email first
+    console.log('[Login] Searching by email...')
     let { data: users, error } = await (supabase
       .from('users') as any)
       .select('*')
       .eq('email', identifier)
 
+    if (error) {
+      console.error('[Login] Email search error:', error)
+      return { success: false, error: `Search failed: ${error.message}` }
+    }
+
     // If not found by email, try username
     if (!users || users.length === 0) {
-      const { data: usersByUsername } = await (supabase
+      console.log('[Login] Not found by email, searching by username...')
+      const { data: usersByUsername, error: usernameError } = await (supabase
         .from('users') as any)
         .select('*')
         .eq('username', identifier)
+      
+      if (usernameError) {
+        console.error('[Login] Username search error:', usernameError)
+        return { success: false, error: `Search failed: ${usernameError.message}` }
+      }
       users = usersByUsername
     }
 
-    if (error || !users || users.length === 0) {
+    if (!users || users.length === 0) {
+      console.log('[Login] User not found')
       return { success: false, error: 'Invalid credentials' }
     }
 
     const user = users[0] as any
+    console.log('[Login] User found, verifying password...')
 
     // Verify password
     if (user.password_hash !== hashPassword(password)) {
+      console.log('[Login] Password mismatch')
       return { success: false, error: 'Invalid credentials' }
     }
 
@@ -104,10 +154,11 @@ export async function login(
       .update({ last_login: new Date().toISOString() })
       .eq('id', user.id)
 
+    console.log('[Login] Login successful for user:', user.id)
     setSession(user)
     return { success: true, user }
-  } catch (error) {
-    console.error('Login error:', error)
+  } catch (error: any) {
+    console.error('[Login] Exception:', error)
     return { success: false, error: 'Login failed' }
   }
 }

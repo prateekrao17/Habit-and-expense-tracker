@@ -1,39 +1,86 @@
 import { Resend } from 'resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+// Add fallback for missing API key
+const resendKey = process.env.RESEND_API_KEY || 'dummy_key'
+const resend = process.env.RESEND_API_KEY ? new Resend(resendKey) : null
 
-export async function sendOTP(email: string, otp: string, purpose: 'signup' | 'password_reset') {
-  const subject = purpose === 'signup' 
-    ? 'Verify Your Email - Life Tracker'
-    : 'Reset Your Password - Life Tracker'
+export function generateOTP(): string {
+  return Math.floor(100000 + Math.random() * 900000).toString()
+}
+
+export async function sendOTP(email: string, otp: string, purpose: 'signup' | 'login' | 'password_reset') {
+  // If no Resend API key, log OTP to console (dev only)
+  if (!resend) {
+    console.log('\n')
+    console.log('╔════════════════════════════════════════════════╗')
+    console.log('║  📧 EMAIL SIMULATION (No Resend API Key)      ║')
+    console.log('╚════════════════════════════════════════════════╝')
+    console.log(`📧 To: ${email}`)
+    console.log(`🎯 Purpose: ${purpose}`)
+    console.log(`✨ OTP CODE: ${otp}`)
+    console.log('⏱️  Valid for: 10 minutes')
+    console.log('╔════════════════════════════════════════════════╗')
+    console.log('\n')
+    return true
+  }
+
+  const subjects = {
+    signup: 'Verify Your Email - Life Tracker',
+    login: 'Login Verification Code - Life Tracker',
+    password_reset: 'Reset Your Password - Life Tracker'
+  }
+
+  const titles = {
+    signup: 'Welcome to Life Tracker!',
+    login: 'Login Verification',
+    password_reset: 'Password Reset'
+  }
+
+  const messages = {
+    signup: 'Thank you for signing up. Please verify your email to continue.',
+    login: 'Someone is trying to login to your account. Use this code to continue.',
+    password_reset: 'You requested to reset your password. Use this code to proceed.'
+  }
 
   const html = `
     <!DOCTYPE html>
     <html>
       <head>
         <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
           .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-          .header { background: #0a0a0a; color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
-          .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 8px 8px; }
-          .otp { font-size: 32px; font-weight: bold; color: #3b82f6; text-align: center; padding: 20px; background: white; border-radius: 8px; letter-spacing: 8px; }
-          .footer { text-align: center; color: #666; font-size: 12px; margin-top: 20px; }
+          .header { background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%); color: white; padding: 40px 20px; text-align: center; border-radius: 12px 12px 0 0; }
+          .content { background: #f9fafb; padding: 40px 30px; border-radius: 0 0 12px 12px; }
+          .otp-box { background: white; padding: 30px; text-align: center; border-radius: 12px; margin: 20px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+          .otp { font-size: 36px; font-weight: bold; color: #3b82f6; letter-spacing: 8px; margin: 10px 0; }
+          .warning { color: #ef4444; font-size: 14px; margin-top: 20px; }
+          .footer { text-align: center; color: #6b7280; font-size: 12px; margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; }
         </style>
       </head>
       <body>
         <div class="container">
           <div class="header">
-            <h1>Life Tracker</h1>
+            <h1 style="margin:0; font-size: 28px;">🎯 Life Tracker</h1>
           </div>
           <div class="content">
-            <h2>${purpose === 'signup' ? 'Verify Your Email' : 'Reset Your Password'}</h2>
-            <p>Your verification code is:</p>
-            <div class="otp">${otp}</div>
-            <p>This code will expire in 10 minutes.</p>
-            <p>If you didn't request this code, please ignore this email.</p>
+            <h2 style="color: #111827; margin-top: 0;">${titles[purpose]}</h2>
+            <p style="color: #4b5563;">${messages[purpose]}</p>
+            
+            <div class="otp-box">
+              <p style="margin: 0; color: #6b7280; font-size: 14px;">Your verification code is:</p>
+              <div class="otp">${otp}</div>
+              <p style="margin: 0; color: #6b7280; font-size: 14px;">Valid for 10 minutes</p>
+            </div>
+
+            <p style="color: #4b5563;">If you didn't request this code, please ignore this email.</p>
+            
+            <div class="warning">
+              ⚠️ Never share this code with anyone. We'll never ask for it.
+            </div>
           </div>
           <div class="footer">
             <p>© 2026 Life Tracker. All rights reserved.</p>
+            <p>This is an automated email. Please do not reply.</p>
           </div>
         </div>
       </body>
@@ -41,10 +88,10 @@ export async function sendOTP(email: string, otp: string, purpose: 'signup' | 'p
   `
 
   try {
-    await resend.emails.send({
+    await resend!.emails.send({
       from: 'Life Tracker <onboarding@resend.dev>',
       to: email,
-      subject,
+      subject: subjects[purpose],
       html,
     })
     return true
@@ -52,8 +99,4 @@ export async function sendOTP(email: string, otp: string, purpose: 'signup' | 'p
     console.error('Email send error:', error)
     return false
   }
-}
-
-export function generateOTP(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString()
 }

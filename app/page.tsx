@@ -25,6 +25,7 @@ import {
   type Habit,
   type Expense
 } from '@/lib/storage'
+import { getNotes, addNote, updateNote, deleteNote, togglePinNote, type Note } from '@/lib/notes'
 import { logout, isAuthenticated, getCurrentUsername, getCurrentUserId } from '@/lib/auth'
 import { 
   Plus, 
@@ -38,13 +39,16 @@ import {
   LogOut,
   ChevronLeft,
   ChevronRight,
-  BarChart3
+  BarChart3,
+  FileText,
+  Pin,
+  Bell
 } from 'lucide-react'
 
 export default function Home() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'habits' | 'expenses'>('habits')
+  const [activeTab, setActiveTab] = useState<'habits' | 'expenses' | 'notes'>('habits')
   
   // Habit State
   const [habits, setHabits] = useState<Habit[]>([])
@@ -64,6 +68,16 @@ export default function Home() {
   })
   const [expenseView, setExpenseView] = useState<'month' | 'year'>('month')
   const [expenseViewDate, setExpenseViewDate] = useState(new Date())
+
+  // Notes State
+  const [notes, setNotes] = useState<Note[]>([])
+  const [showNoteModal, setShowNoteModal] = useState(false)
+  const [newNote, setNewNote] = useState({
+    title: '',
+    content: '',
+    reminderDate: '',
+    tags: ''
+  })
 
   // Custom Categories State
   const [showAddCategory, setShowAddCategory] = useState(false)
@@ -89,8 +103,10 @@ export default function Home() {
   async function loadData() {
     const habitsData = await getHabits()
     const expensesData = await getExpenses()
+    const notesData = await getNotes()
     setHabits(habitsData)
     setExpenses(expensesData)
+    setNotes(notesData)
     setAllCategories(getAllExpenseCategories())
   }
 
@@ -171,6 +187,37 @@ export default function Home() {
       if (success) {
         await loadData()
       }
+    }
+  }
+
+  async function handleAddNote(e: React.FormEvent) {
+    e.preventDefault()
+    if (!newNote.title.trim() || !newNote.content.trim()) return
+    
+    const tags = newNote.tags.split(',').map(t => t.trim()).filter(Boolean)
+    const reminderDate = newNote.reminderDate ? new Date(newNote.reminderDate).toISOString() : undefined
+    
+    const note = await addNote(newNote.title, newNote.content, reminderDate, tags)
+    if (note) {
+      await loadData()
+      setNewNote({ title: '', content: '', reminderDate: '', tags: '' })
+      setShowNoteModal(false)
+    }
+  }
+
+  async function handleDeleteNote(noteId: string) {
+    if (confirm('Delete this note?')) {
+      const success = await deleteNote(noteId)
+      if (success) {
+        await loadData()
+      }
+    }
+  }
+
+  async function handleTogglePin(noteId: string, currentPinned: boolean) {
+    const success = await togglePinNote(noteId, !currentPinned)
+    if (success) {
+      await loadData()
     }
   }
 
@@ -266,6 +313,20 @@ export default function Home() {
               <DollarSign className="inline mr-2" size={18} />
               Expenses
               {activeTab === 'expenses' && (
+                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500" />
+              )}
+            </button>
+            <button
+              onClick={() => setActiveTab('notes')}
+              className={`px-6 py-3 font-medium transition relative ${
+                activeTab === 'notes'
+                  ? 'text-white'
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              <FileText className="inline mr-2" size={18} />
+              Notes
+              {activeTab === 'notes' && (
                 <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500" />
               )}
             </button>
@@ -561,7 +622,7 @@ export default function Home() {
               </div>
             )}
           </>
-        ) : (
+        ) : activeTab === 'expenses' ? (
           <>
             {/* Expenses Controls */}
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
@@ -778,6 +839,98 @@ export default function Home() {
               )}
             </div>
           </>
+        ) : (
+          <>
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h2 className="text-2xl font-semibold text-white">Your Notes</h2>
+                <p className="text-zinc-400 text-sm mt-1">
+                  {notes.length} note{notes.length !== 1 ? 's' : ''}
+                </p>
+              </div>
+              <button
+                onClick={() => setShowNoteModal(true)}
+                className="bg-white text-black px-4 py-2 rounded-lg hover:bg-zinc-200 transition font-medium flex items-center gap-2"
+              >
+                <Plus size={18} />
+                Add Note
+              </button>
+            </div>
+
+            {notes.length === 0 ? (
+              <div className="text-center py-20">
+                <FileText size={64} className="mx-auto text-zinc-700 mb-4" />
+                <p className="text-zinc-500 text-lg">No notes yet</p>
+                <p className="text-zinc-600 text-sm mt-2">
+                  Click "Add Note" to create your first note
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {notes.map(note => (
+                  <div
+                    key={note.id}
+                    className="bg-zinc-900 border border-zinc-800 rounded-lg p-5 hover:border-zinc-700 transition"
+                  >
+                    <div className="flex justify-between items-start mb-3">
+                      <h3 className="text-white font-semibold text-lg flex-1">
+                        {note.title}
+                      </h3>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleTogglePin(note.id, note.pinned)}
+                          className={`transition ${
+                            note.pinned ? 'text-yellow-500' : 'text-zinc-600 hover:text-yellow-500'
+                          }`}
+                        >
+                          <Pin size={16} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteNote(note.id)}
+                          className="text-zinc-600 hover:text-red-500 transition"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <p className="text-zinc-400 text-sm mb-3 line-clamp-3">
+                      {note.content}
+                    </p>
+
+                    {note.reminder_date && (
+                      <div className="flex items-center gap-2 text-xs text-blue-500 mb-3">
+                        <Bell size={14} />
+                        {new Date(note.reminder_date).toLocaleString('en-IN', {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </div>
+                    )}
+
+                    {note.tags && note.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {note.tags.map(tag => (
+                          <span
+                            key={tag}
+                            className="text-xs bg-zinc-800 text-zinc-400 px-2 py-1 rounded"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="text-xs text-zinc-600 mt-3 pt-3 border-t border-zinc-800">
+                      {new Date(note.created_at).toLocaleDateString('en-IN')}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </main>
 
@@ -933,6 +1086,90 @@ export default function Home() {
                   className="btn-primary flex-1"
                 >
                   Add Expense
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add Note Modal */}
+      {showNoteModal && (
+        <div className="fixed inset-0 modal-backdrop flex items-center justify-center p-4 z-50">
+          <div className="modal-content w-full max-w-md p-8">
+            <h2 className="text-2xl font-bold text-white mb-2">
+              Add New Note
+            </h2>
+            <p className="text-zinc-500 text-sm mb-6">
+              Create a note with optional reminder
+            </p>
+            
+            <form onSubmit={handleAddNote} className="space-y-4">
+              <div>
+                <label className="block text-zinc-400 text-sm font-medium mb-2">
+                  Title
+                </label>
+                <input
+                  type="text"
+                  value={newNote.title}
+                  onChange={(e) => setNewNote({...newNote, title: e.target.value})}
+                  placeholder="Note title"
+                  className="w-full"
+                  autoFocus
+                />
+              </div>
+              
+              <div>
+                <label className="block text-zinc-400 text-sm font-medium mb-2">
+                  Content
+                </label>
+                <textarea
+                  value={newNote.content}
+                  onChange={(e) => setNewNote({...newNote, content: e.target.value})}
+                  placeholder="Write your note here..."
+                  className="w-full h-24 resize-none"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-zinc-400 text-sm font-medium mb-2">
+                  Reminder (optional)
+                </label>
+                <input
+                  type="datetime-local"
+                  value={newNote.reminderDate}
+                  onChange={(e) => setNewNote({...newNote, reminderDate: e.target.value})}
+                  className="w-full"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-zinc-400 text-sm font-medium mb-2">
+                  Tags (comma-separated, optional)
+                </label>
+                <input
+                  type="text"
+                  value={newNote.tags}
+                  onChange={(e) => setNewNote({...newNote, tags: e.target.value})}
+                  placeholder="e.g., work, personal, urgent"
+                  className="w-full"
+                />
+              </div>
+              
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowNoteModal(false)}
+                  className="btn-secondary flex-1"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!newNote.title.trim() || !newNote.content.trim()}
+                  className="btn-primary flex-1"
+                >
+                  Add Note
                 </button>
               </div>
             </form>

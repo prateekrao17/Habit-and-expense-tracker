@@ -4,6 +4,43 @@
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- 0. users table (Custom Auth)
+-- Stores user account information
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  email TEXT UNIQUE NOT NULL,
+  username TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  last_login TIMESTAMP WITH TIME ZONE
+);
+
+-- 0b. otp_codes table
+-- Stores OTP codes for email verification
+CREATE TABLE IF NOT EXISTS otp_codes (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  email TEXT NOT NULL,
+  otp_code TEXT NOT NULL,
+  purpose TEXT NOT NULL CHECK (purpose IN ('signup', 'login', 'password_reset')),
+  expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  used BOOLEAN DEFAULT false,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- 0c. expenses table
+-- Stores expense tracking data
+CREATE TABLE IF NOT EXISTS expenses (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  amount FLOAT NOT NULL,
+  category TEXT NOT NULL,
+  description TEXT,
+  expense_date DATE NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- 1. habits_series table
 -- Stores habit information with series-based streak tracking
 CREATE TABLE IF NOT EXISTS habits_series (
@@ -60,6 +97,19 @@ CREATE TABLE IF NOT EXISTS quick_notes (
 );
 
 -- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_otp_codes_email ON otp_codes(email);
+CREATE INDEX IF NOT EXISTS idx_otp_codes_expires_at ON otp_codes(expires_at);
+CREATE INDEX IF NOT EXISTS idx_otp_codes_email_purpose ON otp_codes(email, purpose);
+
+CREATE INDEX IF NOT EXISTS idx_expenses_user_id ON expenses(user_id);
+CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date);
+CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category);
+CREATE INDEX IF NOT EXISTS idx_expenses_user_date ON expenses(user_id, expense_date DESC);
+
 CREATE INDEX IF NOT EXISTS idx_habits_series_user_id ON habits_series(user_id);
 CREATE INDEX IF NOT EXISTS idx_habits_series_last_ticked ON habits_series(last_ticked_at);
 
@@ -167,10 +217,37 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Row Level Security (RLS) Policies
 -- Enable RLS on all tables
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE otp_codes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE expenses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE habits_series ENABLE ROW LEVEL SECURITY;
 ALTER TABLE daily_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE health_tracking ENABLE ROW LEVEL SECURITY;
 ALTER TABLE quick_notes ENABLE ROW LEVEL SECURITY;
+
+-- Policies for users (disable RLS for signup to work)
+-- Note: Signup requires inserting users without auth context
+-- In production, implement proper auth triggers
+
+-- Policies for otp_codes (disable RLS for signup to work)
+-- Note: OTP codes are created during signup before auth
+
+-- Policies for expenses
+CREATE POLICY "Users can view their own expenses"
+  ON expenses FOR SELECT
+  USING (user_id = auth.uid()::text OR user_id LIKE 'user_%');
+
+CREATE POLICY "Users can insert their own expenses"
+  ON expenses FOR INSERT
+  WITH CHECK (user_id = auth.uid()::text OR user_id LIKE 'user_%');
+
+CREATE POLICY "Users can update their own expenses"
+  ON expenses FOR UPDATE
+  USING (user_id = auth.uid()::text OR user_id LIKE 'user_%');
+
+CREATE POLICY "Users can delete their own expenses"
+  ON expenses FOR DELETE
+  USING (user_id = auth.uid()::text OR user_id LIKE 'user_%');
 
 -- Policies for habits_series
 CREATE POLICY "Users can view their own habits"

@@ -545,6 +545,7 @@ export default function Home() {
                                     if (completed) {
                                       handleUntickHabit(habit.id, date)
                                     } else {
+                                     // @ts-ignore
                                       handleTickHabit(habit.id, date)
                                     }
                                   }}

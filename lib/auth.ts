@@ -14,45 +14,70 @@ function hashPassword(password: string): string {
   return btoa(password + '_life_tracker_secret')
 }
 
+function isMobileNumber(input: string): boolean {
+  // Check if input is exactly 10 digits
+  return /^\d{10}$/.test(input.trim())
+}
+
+function isEmail(input: string): boolean {
+  return input.includes('@')
+}
+
 export async function signup(
-  email: string,
-  password: string,
-  username: string
+  emailOrUsernameOrMobile: string,
+  password: string
 ): Promise<{ success: boolean; error?: string; user?: User }> {
   try {
-    console.log('[Signup] Starting signup process', { email, username })
+    console.log('[Signup] Starting signup')
     
-    const finalEmail = email.trim().toLowerCase()
-    const finalUsername = username.trim().toLowerCase()
+    const input = emailOrUsernameOrMobile.trim()
+    const mobile = isMobileNumber(input) ? input : null
+    const isEmailInput = isEmail(input)
+    
+    const email = mobile 
+      ? `${mobile}@mobile.local`
+      : isEmailInput 
+      ? input.toLowerCase() 
+      : `${input.toLowerCase()}@local.app`
+    
+    const username = mobile
+      ? `user_${mobile}`
+      : isEmailInput 
+      ? input.split('@')[0].toLowerCase()
+      : input.toLowerCase()
 
-    console.log('[Signup] Processing:', { finalEmail, finalUsername })
+    console.log('[Signup] Processing:', { email, username, mobile })
 
-    // Check if user exists
-    console.log('[Signup] Checking for existing user...')
-    const { data: existing, error: checkError } = await supabase
+    // Check if user exists (email, username, OR mobile)
+    let query = supabase
       .from('users')
       .select('id')
-      .or(`email.eq.${finalEmail},username.eq.${finalUsername}`)
-
-    if (checkError) {
-      console.error('[Signup] Check error:', checkError)
-      return { success: false, error: `Check failed: ${checkError.message}` }
+    
+    if (mobile) {
+      query = query.eq('mobile', mobile)
+    } else {
+      query = query.or(`email.eq.${email},username.eq.${username}`)
     }
+    
+    const { data: existing } = await query
 
     if (existing && existing.length > 0) {
-      console.log('[Signup] User already exists')
-      return { success: false, error: 'Email or username already taken' }
+      return { 
+        success: false, 
+        error: mobile ? 'Mobile number already registered' : 'Email or username already exists' 
+      }
     }
 
     // Create user
-    console.log('[Signup] Creating new user...')
-    const userData = {
-      email: finalEmail,
-      username: finalUsername,
+    const userData: any = {
+      email,
+      username,
       password_hash: hashPassword(password.trim())
     }
-
-    console.log('[Signup] Insert data:', { finalEmail, finalUsername, hasPassword: true })
+    
+    if (mobile) {
+      userData.mobile = mobile
+    }
 
     const { data: newUser, error } = await supabase
       .from('users')
@@ -61,32 +86,17 @@ export async function signup(
       .single()
 
     if (error) {
-      console.error('[Signup] Insert error:', error)
-      console.error('[Signup] Error message:', error.message)
-      console.error('[Signup] Error code:', error.code)
-      console.error('[Signup] Error details:', error.details)
-      console.error('[Signup] Error hint:', error.hint)
-      return { 
-        success: false, 
-        error: `Database error: ${error.message || 'Insert failed'}` 
-      }
+      console.error('[Signup] Error:', error)
+      return { success: false, error: `Failed to create account: ${error.message}` }
     }
 
-    if (!newUser) {
-      console.error('[Signup] No user returned')
-      return { success: false, error: 'Account created but no data returned' }
-    }
-
-    console.log('[Signup] Success! User created:', newUser.id)
+    console.log('[Signup] Success!')
     setSession(newUser)
     return { success: true, user: newUser }
 
   } catch (error: any) {
     console.error('[Signup] Exception:', error)
-    return { 
-      success: false, 
-      error: error?.message || 'Signup failed unexpectedly' 
-    }
+    return { success: false, error: 'Signup failed' }
   }
 }
 
@@ -95,57 +105,41 @@ export async function login(
   password: string
 ): Promise<{ success: boolean; error?: string; user?: User }> {
   try {
-    // Normalize input
-    const normalizedIdentifier = identifier.trim().toLowerCase()
+    const input = identifier.trim()
+    const mobile = isMobileNumber(input) ? input : null
+    const normalizedIdentifier = input.toLowerCase()
+
+    console.log('[Login] Attempting login:', { input, isMobile: !!mobile })
+
+    // Query by mobile OR email/username
+    let query = supabase.from('users').select('*')
     
-    console.log('[Login] Attempting login for:', normalizedIdentifier)
-
-    // Query user from database
-    const { data: users, error: queryError } = await supabase
-      .from('users')
-      .select('*')
-      .or(`email.eq.${normalizedIdentifier},username.eq.${normalizedIdentifier}`)
-
-    if (queryError) {
-      console.error('[Login] Database error:', queryError)
-      return { success: false, error: 'Database connection error' }
+    if (mobile) {
+      query = query.eq('mobile', mobile)
+    } else {
+      query = query.or(`email.eq.${normalizedIdentifier},username.eq.${normalizedIdentifier}`)
     }
+    
+    const { data: users, error: queryError } = await query
 
-    if (!users || users.length === 0) {
-      console.log('[Login] User not found')
-      return { success: false, error: 'Email/username or password is incorrect' }
+    if (queryError || !users || users.length === 0) {
+      return { success: false, error: 'Invalid credentials' }
     }
 
     const user = users[0]
-    console.log('[Login] User found:', user.username)
-
-    // Hash the provided password using THE SAME function as signup
     const providedPasswordHash = hashPassword(password.trim())
-    const storedPasswordHash = user.password_hash
 
-    console.log('[Login] Hash comparison:', {
-      provided: providedPasswordHash.substring(0, 20) + '...',
-      stored: storedPasswordHash.substring(0, 20) + '...',
-      match: providedPasswordHash === storedPasswordHash
-    })
-
-    // Compare passwords
-    if (storedPasswordHash !== providedPasswordHash) {
-      console.log('[Login] Password does not match')
-      return { success: false, error: 'Email/username or password is incorrect' }
+    if (user.password_hash !== providedPasswordHash) {
+      return { success: false, error: 'Invalid credentials' }
     }
 
-    console.log('[Login] Login successful!')
-
-    // Update last login timestamp
     await supabase
       .from('users')
       .update({ last_login: new Date().toISOString() })
       .eq('id', user.id)
 
-    // Create session
     setSession(user)
-
+    console.log('[Login] Success!')
     return { success: true, user }
 
   } catch (error: any) {

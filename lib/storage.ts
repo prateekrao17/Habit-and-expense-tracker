@@ -1,3 +1,4 @@
+import { supabase } from './supabase'
 import { getCurrentUserId } from './auth'
 
 export interface Habit {
@@ -42,6 +43,26 @@ function getUserKey(baseKey: string, userId?: string): string {
 
 function generateId(): string {
   return Math.random().toString(36).substr(2, 9)
+}
+
+function isDateAllowed(dateString: string): boolean {
+  const date = new Date(dateString)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  
+  const checkDate = new Date(date)
+  checkDate.setHours(0, 0, 0, 0)
+  
+  // Calculate 3 days ago
+  const threeDaysAgo = new Date(today)
+  threeDaysAgo.setDate(today.getDate() - 3)
+  
+  // Date must be between 3 days ago and today (inclusive)
+  return checkDate >= threeDaysAgo && checkDate <= today
+}
+
+export function isDateAllowedExport(dateString: string): boolean {
+  return isDateAllowed(dateString)
 }
 
 // Helper to generate date strings
@@ -94,149 +115,212 @@ export function getYearMonths(year: number): Array<{ month: number; name: string
 
 // Habits
 export async function getHabits(): Promise<Habit[]> {
-  if (typeof window === 'undefined') return []
-  
   const userId = getCurrentUserId()
   if (!userId) return []
-  
-  const key = getUserKey('habits', userId)
-  const data = localStorage.getItem(key)
-  return data ? JSON.parse(data) : []
+
+  const { data, error } = await supabase
+    .from('habits')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true })
+
+  if (error) {
+    console.error('[getHabits] Error:', error)
+    return []
+  }
+
+  console.log('[getHabits] Found', data?.length || 0, 'habits')
+  return data || []
 }
 
 export async function addHabit(name: string): Promise<Habit | null> {
-  if (typeof window === 'undefined') return null
-  
   const userId = getCurrentUserId()
-  if (!userId) return null
-  
-  const habit: Habit = {
-    id: generateId(),
-    name,
-    current_streak: 0,
-    best_streak: 0,
-    last_completed: '',
-    completions: []
+  if (!userId) {
+    console.error('[addHabit] No user ID found')
+    return null
   }
-  
-  const habits = await getHabits()
-  habits.push(habit)
-  
-  const key = getUserKey('habits', userId)
-  localStorage.setItem(key, JSON.stringify(habits))
-  
-  return habit
+
+  console.log('[addHabit] Creating habit for user:', userId)
+
+  const { data, error } = await supabase
+    .from('habits')
+    .insert({
+      user_id: userId,
+      name,
+      current_streak: 0,
+      best_streak: 0,
+      color: '#3b82f6'
+    })
+    .select()
+    .single()
+
+  if (error) {
+    console.error('[addHabit] Error:', error)
+    return null
+  }
+
+  console.log('[addHabit] Success:', data)
+  return data
 }
 
-export async function tickHabit(habitId: string): Promise<boolean> {
-  if (typeof window === 'undefined') return false
-  
+export async function tickHabit(habitId: string, date?: string): Promise<boolean> {
   const userId = getCurrentUserId()
   if (!userId) return false
-  
-  const habits = await getHabits()
-  const habit = habits.find(h => h.id === habitId)
-  
+
+  const today = new Date().toISOString().split('T')[0]
+  const dateToTick = date || today
+
+  // Validate date is allowed
+  if (!isDateAllowed(dateToTick)) {
+    console.log('[tickHabit] Date not allowed:', dateToTick)
+    alert('You can only mark habits for today or the past 3 days')
+    return false
+  }
+
+  console.log('[tickHabit] Ticking habit:', habitId, 'for date:', dateToTick)
+
+  // Check if already completed
+  const { data: existing } = await supabase
+    .from('habit_completions')
+    .select('id')
+    .eq('habit_id', habitId)
+    .eq('completion_date', dateToTick)
+    .single()
+
+  if (existing) {
+    console.log('[tickHabit] Already completed')
+    return true
+  }
+
+  // Add completion
+  const { error: insertError } = await supabase
+    .from('habit_completions')
+    .insert({
+      habit_id: habitId,
+      user_id: userId,
+      completion_date: dateToTick,
+      completed: true
+    })
+
+  if (insertError) {
+    console.error('[tickHabit] Error:', insertError)
+    return false
+  }
+
+  // Update streak
+  const { data: habit } = await supabase
+    .from('habits')
+    .select('current_streak, best_streak, last_completed')
+    .eq('id', habitId)
+    .single()
+
   if (!habit) return false
-  
-  const today = getDateStr()
-  
-  if (!habit.completions) {
-    habit.completions = []
-  }
-  
-  const alreadyCompleted = habit.completions.some(c => c.date === today)
-  if (alreadyCompleted) return false
-  
-  habit.completions.push({ date: today })
-  habit.last_completed = today
-  
-  // Calculate streak
-  let streak = 1
-  let checkDate = new Date(today)
-  
-  for (let i = 1; i <= 365; i++) {
-    checkDate.setDate(checkDate.getDate() - 1)
-    const checkStr = getDateStr(checkDate)
-    
-    if (!habit.completions.some(c => c.date === checkStr)) {
-      break
-    }
-    streak++
-  }
-  
-  habit.current_streak = streak
-  if (streak > habit.best_streak) {
-    habit.best_streak = streak
-  }
-  
-  const key = getUserKey('habits', userId)
-  localStorage.setItem(key, JSON.stringify(habits))
-  
+
+  const yesterday = new Date()
+  yesterday.setDate(yesterday.getDate() - 1)
+  const yesterdayStr = yesterday.toISOString().split('T')[0]
+  const lastDate = habit.last_completed?.split('T')[0]
+
+  const isConsecutive = lastDate === yesterdayStr || lastDate === today
+  const newStreak = isConsecutive ? habit.current_streak + 1 : 1
+  const newBest = Math.max(newStreak, habit.best_streak)
+
+  await supabase
+    .from('habits')
+    .update({
+      current_streak: newStreak,
+      best_streak: newBest,
+      last_completed: new Date().toISOString()
+    })
+    .eq('id', habitId)
+
+  console.log('[tickHabit] Success! New streak:', newStreak)
   return true
 }
 
 export async function untickHabit(habitId: string, date: string): Promise<boolean> {
-  if (typeof window === 'undefined') return false
-  
   const userId = getCurrentUserId()
   if (!userId) return false
-  
-  const habits = await getHabits()
-  const habit = habits.find(h => h.id === habitId)
-  
-  if (!habit || !habit.completions) return false
-  
-  // Remove the completion for this date
-  habit.completions = habit.completions.filter(c => c.date !== date)
-  
-  // Recalculate streak from the most recent completion
-  if (habit.completions.length === 0) {
-    habit.current_streak = 0
-    habit.last_completed = ''
-  } else {
-    // Sort completions by date
-    const sortedCompletions = habit.completions.sort((a, b) => 
-      new Date(b.date).getTime() - new Date(a.date).getTime()
-    )
-    
-    habit.last_completed = sortedCompletions[0].date
-    
-    // Calculate streak from most recent completion
-    let streak = 1
-    let checkDate = new Date(sortedCompletions[0].date)
-    
-    for (let i = 1; i <= 365; i++) {
-      checkDate.setDate(checkDate.getDate() - 1)
-      const checkStr = getDateStr(checkDate)
-      
-      if (!habit.completions.some(c => c.date === checkStr)) {
-        break
-      }
-      streak++
-    }
-    
-    habit.current_streak = streak
+
+  // Validate date is allowed
+  if (!isDateAllowed(date)) {
+    console.log('[untickHabit] Date not allowed:', date)
+    alert('You can only modify habits for today or the past 3 days')
+    return false
   }
-  
-  const key = getUserKey('habits', userId)
-  localStorage.setItem(key, JSON.stringify(habits))
-  
+
+  console.log('[untickHabit] Unticking habit:', habitId, 'for date:', date)
+
+  // Delete the completion
+  const { error } = await supabase
+    .from('habit_completions')
+    .delete()
+    .eq('habit_id', habitId)
+    .eq('completion_date', date)
+
+  if (error) {
+    console.error('[untickHabit] Error:', error)
+    return false
+  }
+
+  // Recalculate streak (simplified)
+  const { data: completions } = await supabase
+    .from('habit_completions')
+    .select('completion_date')
+    .eq('habit_id', habitId)
+    .order('completion_date', { ascending: false })
+
+  const streak = calculateStreak(completions?.map(c => c.completion_date) || [])
+
+  await supabase
+    .from('habits')
+    .update({
+      current_streak: streak,
+      last_completed: completions?.[0]?.completion_date || null
+    })
+    .eq('id', habitId)
+
+  console.log('[untickHabit] Success!')
   return true
 }
 
-export async function deleteHabit(habitId: string): Promise<boolean> {
-  if (typeof window === 'undefined') return false
+function calculateStreak(dates: string[]): number {
+  if (dates.length === 0) return 0
   
+  let streak = 0
+  const today = new Date().toISOString().split('T')[0]
+  const sortedDates = [...dates].sort().reverse()
+  
+  for (let i = 0; i < sortedDates.length; i++) {
+    const expectedDate = new Date()
+    expectedDate.setDate(expectedDate.getDate() - i)
+    const expectedStr = expectedDate.toISOString().split('T')[0]
+    
+    if (sortedDates[i] === expectedStr) {
+      streak++
+    } else {
+      break
+    }
+  }
+  
+  return streak
+}
+
+export async function deleteHabit(habitId: string): Promise<boolean> {
   const userId = getCurrentUserId()
   if (!userId) return false
-  
-  let habits = await getHabits()
-  habits = habits.filter(h => h.id !== habitId)
-  
-  const key = getUserKey('habits', userId)
-  localStorage.setItem(key, JSON.stringify(habits))
-  
+
+  const { error } = await supabase
+    .from('habits')
+    .delete()
+    .eq('id', habitId)
+    .eq('user_id', userId)
+
+  if (error) {
+    console.error('[deleteHabit] Error:', error)
+    return false
+  }
+
   return true
 }
 
@@ -255,14 +339,22 @@ export function getHabitStats(habitId: string): {
 
 // Expenses
 export async function getExpenses(): Promise<Expense[]> {
-  if (typeof window === 'undefined') return []
-  
   const userId = getCurrentUserId()
   if (!userId) return []
-  
-  const key = getUserKey('expenses', userId)
-  const data = localStorage.getItem(key)
-  return data ? JSON.parse(data) : []
+
+  const { data, error } = await supabase
+    .from('expenses')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    console.error('[getExpenses] Error:', error)
+    return []
+  }
+
+  console.log('[getExpenses] Found', data?.length || 0, 'expenses')
+  return data || []
 }
 
 export async function addExpense(
@@ -270,41 +362,50 @@ export async function addExpense(
   category: string,
   description: string
 ): Promise<Expense | null> {
-  if (typeof window === 'undefined') return null
-  
   const userId = getCurrentUserId()
-  if (!userId) return null
-  
-  const expense: Expense = {
-    id: generateId(),
-    amount,
-    category,
-    description,
-    expense_date: getDateStr(),
-    created_at: new Date().toISOString()
+  if (!userId) {
+    console.error('[addExpense] No user ID found')
+    return null
   }
-  
-  const expenses = await getExpenses()
-  expenses.push(expense)
-  
-  const key = getUserKey('expenses', userId)
-  localStorage.setItem(key, JSON.stringify(expenses))
-  
-  return expense
+
+  console.log('[addExpense] Creating expense for user:', userId)
+
+  const { data, error } = await supabase
+    .from('expenses')
+    .insert({
+      user_id: userId,
+      amount,
+      category,
+      description,
+      expense_date: new Date().toISOString().split('T')[0]
+    })
+    .select()
+    .single()
+
+  if (error) {
+    console.error('[addExpense] Error:', error)
+    return null
+  }
+
+  console.log('[addExpense] Success:', data)
+  return data
 }
 
 export async function deleteExpense(expenseId: string): Promise<boolean> {
-  if (typeof window === 'undefined') return false
-  
   const userId = getCurrentUserId()
   if (!userId) return false
-  
-  let expenses = await getExpenses()
-  expenses = expenses.filter(e => e.id !== expenseId)
-  
-  const key = getUserKey('expenses', userId)
-  localStorage.setItem(key, JSON.stringify(expenses))
-  
+
+  const { error } = await supabase
+    .from('expenses')
+    .delete()
+    .eq('id', expenseId)
+    .eq('user_id', userId)
+
+  if (error) {
+    console.error('[deleteExpense] Error:', error)
+    return false
+  }
+
   return true
 }
 
@@ -357,7 +458,7 @@ export function getCategoryBreakdown(
     .sort((a, b) => b.total - a.total)
 }
 
-// Custom Category Management
+// Custom Category Management (localStorage for local user preferences)
 export function getCustomCategories(): string[] {
   if (typeof window === 'undefined') return []
   const userId = getCurrentUserId()

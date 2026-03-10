@@ -17,8 +17,7 @@ export default function AuthPage() {
   const [mode, setMode] = useState<Mode>('login')
   const [forgotStep, setForgotStep] = useState<ForgotStep>('email')
   
-  const [email, setEmail] = useState('')
-  const [username, setUsername] = useState('')
+  const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [otp, setOtp] = useState('')
@@ -37,20 +36,15 @@ export default function AuthPage() {
     setLoading(true)
 
     if (mode === 'login') {
-      const result = await login(email, password)
+      const result = await login(identifier, password)
       if (result.success) {
         router.push('/')
       } else {
         setError(result.error || 'Login failed')
       }
     } else if (mode === 'signup') {
-      if (!email) {
-        setError('Email is required')
-        setLoading(false)
-        return
-      }
-      if (username.length < 3) {
-        setError('Username must be at least 3 characters')
+      if (!identifier) {
+        setError('Email, username, or mobile number is required')
         setLoading(false)
         return
       }
@@ -65,14 +59,14 @@ export default function AuthPage() {
         return
       }
 
-      const result = await signup(email, password, username)
+      const result = await signup(identifier, password)
       if (result.success) {
         router.push('/')
       } else {
         setError(result.error || 'Signup failed')
       }
     } else if (mode === 'forgot') {
-      const result = await sendPasswordResetOTP(email)
+      const result = await sendPasswordResetOTP(identifier)
       if (result.success) {
         setSuccess('Reset code sent! Check your console.')
         setForgotStep('verify')
@@ -91,7 +85,7 @@ export default function AuthPage() {
     setLoading(true)
 
     if (forgotStep === 'verify') {
-      const result = await verifyResetOTP(email, otp)
+      const result = await verifyResetOTP(identifier, otp)
       if (result.success) {
         setSuccess('Code verified!')
         setForgotStep('reset')
@@ -105,12 +99,12 @@ export default function AuthPage() {
         return
       }
 
-      const result = await resetPassword(email, newPassword)
+      const result = await resetPassword(identifier, newPassword)
       if (result.success) {
         alert('Password reset successful!')
         setMode('login')
         setForgotStep('email')
-        setEmail('')
+        setIdentifier('')
         setPassword('')
         setOtp('')
         setNewPassword('')
@@ -125,8 +119,7 @@ export default function AuthPage() {
   }
 
   function resetForm() {
-    setEmail('')
-    setUsername('')
+    setIdentifier('')
     setPassword('')
     setConfirmPassword('')
     setOtp('')
@@ -181,9 +174,9 @@ export default function AuthPage() {
                   <div className="relative">
                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
                     <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      type="text"
+                      value={identifier}
+                      onChange={(e) => setIdentifier(e.target.value)}
                       className="w-full bg-zinc-900 border border-zinc-700 text-white pl-10 px-4 py-2.5 rounded-xl focus:outline-none focus:border-blue-500"
                       placeholder="your@email.com"
                       required
@@ -267,15 +260,15 @@ export default function AuthPage() {
           <form onSubmit={handleCredentialsSubmit} className="space-y-4">
             {mode === 'login' && (
               <div>
-                <label className="block text-zinc-400 text-sm font-medium mb-2">Email or Username</label>
+                <label className="block text-zinc-400 text-sm font-medium mb-2">Email / Username / Mobile Number</label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
                   <input
                     type="text"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    value={identifier}
+                    onChange={(e) => setIdentifier(e.target.value)}
                     className="w-full bg-zinc-900 border border-zinc-700 text-white pl-10 px-4 py-2.5 rounded-xl focus:outline-none focus:border-blue-500"
-                    placeholder="your@email.com or username"
+                    placeholder="email / username / mobile"
                     required
                     autoFocus
                   />
@@ -284,38 +277,21 @@ export default function AuthPage() {
             )}
 
             {mode === 'signup' && (
-              <>
-                <div>
-                  <label className="block text-zinc-400 text-sm font-medium mb-2">Email</label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      className="w-full bg-zinc-900 border border-zinc-700 text-white pl-10 px-4 py-2.5 rounded-xl focus:outline-none focus:border-blue-500"
-                      placeholder="your@email.com"
-                      required
-                      autoFocus
-                    />
-                  </div>
+              <div>
+                <label className="block text-zinc-400 text-sm font-medium mb-2">Email / Username / Mobile Number</label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
+                  <input
+                    type="text"
+                    value={identifier}
+                    onChange={(e) => setIdentifier(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-700 text-white pl-10 px-4 py-2.5 rounded-xl focus:outline-none focus:border-blue-500"
+                    placeholder="email / username / 10-digit mobile"
+                    required
+                    autoFocus
+                  />
                 </div>
-
-                <div>
-                  <label className="block text-zinc-400 text-sm font-medium mb-2">Username</label>
-                  <div className="relative">
-                    <User className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
-                    <input
-                      type="text"
-                      value={username}
-                      onChange={(e) => setUsername(e.target.value)}
-                      className="w-full bg-zinc-900 border border-zinc-700 text-white pl-10 px-4 py-2.5 rounded-xl focus:outline-none focus:border-blue-500"
-                      placeholder="johndoe"
-                      required
-                    />
-                  </div>
-                </div>
-              </>
+              </div>
             )}
 
             <div>

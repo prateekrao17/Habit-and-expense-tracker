@@ -45,6 +45,20 @@ import {
   Bell
 } from 'lucide-react'
 
+function isDateAllowed(dateString: string): boolean {
+  const date = new Date(dateString)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  
+  const checkDate = new Date(date)
+  checkDate.setHours(0, 0, 0, 0)
+  
+  const threeDaysAgo = new Date(today)
+  threeDaysAgo.setDate(today.getDate() - 3)
+  
+  return checkDate >= threeDaysAgo && checkDate <= today
+}
+
 export default function Home() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(true)
@@ -522,8 +536,7 @@ export default function Home() {
                           {habitView === 'week' && weekDates.map(date => {
                             const completed = checkHabitCompleted(habit.id, date)
                             const isToday = date === new Date().toISOString().split('T')[0]
-                            const isPast = date < new Date().toISOString().split('T')[0]
-                            const isFuture = date > new Date().toISOString().split('T')[0]
+                            const isAllowed = isDateAllowed(date)
                             
                             return (
                               <td key={date} className="text-center px-2 py-4">
@@ -532,14 +545,14 @@ export default function Home() {
                                     if (completed) {
                                       handleUntickHabit(habit.id, date)
                                     } else {
-                                      handleTickHabit(habit.id)
+                                      handleTickHabit(habit.id, date)
                                     }
                                   }}
-                                  disabled={isFuture}
+                                  disabled={!isAllowed}
                                   className={`inline-flex items-center justify-center w-8 h-8 rounded-full transition ${
                                     completed
                                       ? 'bg-green-500 text-white hover:bg-green-600'
-                                      : isFuture
+                                      : !isAllowed
                                       ? 'bg-zinc-800 text-zinc-700 cursor-not-allowed'
                                       : isToday
                                       ? 'bg-blue-500/20 text-blue-500 hover:bg-blue-500 hover:text-white'

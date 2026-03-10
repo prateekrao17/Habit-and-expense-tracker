@@ -1,53 +1,35 @@
 import { createClient } from '@supabase/supabase-js'
 
-// Vercel Supabase integration uses these variable names
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || ''
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || ''
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
-console.log('[Supabase] Configuration check:', {
-  url: supabaseUrl ? '✓ Set' : '✗ Missing',
-  key: supabaseAnonKey ? '✓ Set' : '✗ Missing',
-  urlPrefix: supabaseUrl?.substring(0, 30),
-})
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('[Supabase] ❌ Missing critical credentials!')
-  console.error('[Supabase] URL value:', supabaseUrl || 'NOT SET')
-  console.error('[Supabase] Key value:', supabaseAnonKey ? 'SET (hidden)' : 'NOT SET')
+if (!supabaseUrl || !supabaseKey) {
+  throw new Error('Missing Supabase environment variables')
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+export const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: {
     persistSession: false,
     autoRefreshToken: false,
+    detectSessionInUrl: false
   },
-  global: {
-    headers: {
-      'x-application-name': 'life-tracker',
-    },
-  },
+  db: {
+    schema: 'public'
+  }
 })
 
-// Test connection on initialization
-if (typeof window === 'undefined') {
-  // Only test connection on server-side initialization
-  (async () => {
-    try {
-      console.log('[Supabase] Testing connection...')
-      const { data, error } = await supabase
-        .from('users')
-        .select('count')
-        .limit(1)
-
+// Test connection
+if (typeof window !== 'undefined') {
+  supabase
+    .from('users')
+    .select('count', { count: 'exact', head: true })
+    .then(({ error }) => {
       if (error) {
-        console.error('[Supabase] ❌ Connection test failed:', error.message)
+        console.error('❌ Supabase connection failed:', error.message)
       } else {
-        console.log('[Supabase] ✅ Connected successfully')
+        console.log('✅ Supabase connected successfully')
       }
-    } catch (err: any) {
-      console.error('[Supabase] ❌ Connection test exception:', err?.message)
-    }
-  })()
+    })
 }
 
 export interface User {

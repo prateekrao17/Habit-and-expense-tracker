@@ -10,78 +10,65 @@ interface User {
   created_at: string
 }
 
-// Simple password hash (use bcrypt in production)
 function hashPassword(password: string): string {
-  return btoa(password + 'life_tracker_salt')
+  return btoa(password + '_life_tracker_secret')
 }
 
-// Signup - Direct without OTP
 export async function signup(
   email: string,
   password: string,
   username: string
 ): Promise<{ success: boolean; error?: string; user?: User }> {
   try {
-    console.log('[Signup] Starting signup attempt', { email, username })
+    console.log('[Signup] Starting signup process', { email, username })
+    
+    const finalEmail = email.trim().toLowerCase()
+    const finalUsername = username.trim().toLowerCase()
 
-    // Validate inputs
-    if (!email || email.trim().length < 3) {
-      return { success: false, error: 'Email must be at least 3 characters' }
-    }
-    if (!username || username.trim().length < 3) {
-      return { success: false, error: 'Username must be at least 3 characters' }
-    }
-    if (!password || password.length < 6) {
-      return { success: false, error: 'Password must be at least 6 characters' }
-    }
+    console.log('[Signup] Processing:', { finalEmail, finalUsername })
 
-    // Check if email or username already exists
-    console.log('[Signup] Checking if user exists...')
-    const { data: existing, error: checkError } = await (supabase
-      .from('users') as any)
-      .select('id, email, username')
-      .or(`email.eq.${email},username.eq.${username}`)
+    // Check if user exists
+    console.log('[Signup] Checking for existing user...')
+    const { data: existing, error: checkError } = await supabase
+      .from('users')
+      .select('id')
+      .or(`email.eq.${finalEmail},username.eq.${finalUsername}`)
 
     if (checkError) {
       console.error('[Signup] Check error:', checkError)
-      return { 
-        success: false, 
-        error: 'Database connection failed. Check Supabase configuration.' 
-      }
+      return { success: false, error: `Check failed: ${checkError.message}` }
     }
 
     if (existing && existing.length > 0) {
-      const conflict = existing[0]
-      if (conflict.email === email) {
-        return { success: false, error: 'Email already exists' }
-      }
-      if (conflict.username === username) {
-        return { success: false, error: 'Username already exists' }
-      }
+      console.log('[Signup] User already exists')
+      return { success: false, error: 'Email or username already taken' }
     }
 
     // Create user
-    console.log('[Signup] Creating user with data:', { email, username })
-    const { data: newUser, error } = await (supabase
-      .from('users') as any)
-      .insert({
-        email,
-        username,
-        password_hash: hashPassword(password)
-      })
+    console.log('[Signup] Creating new user...')
+    const userData = {
+      email: finalEmail,
+      username: finalUsername,
+      password_hash: hashPassword(password.trim())
+    }
+
+    console.log('[Signup] Insert data:', { finalEmail, finalUsername, hasPassword: true })
+
+    const { data: newUser, error } = await supabase
+      .from('users')
+      .insert(userData)
       .select()
       .single()
 
     if (error) {
       console.error('[Signup] Insert error:', error)
-      console.error('[Signup] Error details:', {
-        code: (error as any).code,
-        message: error.message,
-        details: (error as any).details,
-      })
+      console.error('[Signup] Error message:', error.message)
+      console.error('[Signup] Error code:', error.code)
+      console.error('[Signup] Error details:', error.details)
+      console.error('[Signup] Error hint:', error.hint)
       return { 
         success: false, 
-        error: `Failed to create account: ${error.message}` 
+        error: `Database error: ${error.message || 'Insert failed'}` 
       }
     }
 
@@ -90,68 +77,38 @@ export async function signup(
       return { success: false, error: 'Account created but no data returned' }
     }
 
-    console.log('[Signup] ✅ Success, user created:', newUser.id)
+    console.log('[Signup] Success! User created:', newUser.id)
     setSession(newUser)
     return { success: true, user: newUser }
+
   } catch (error: any) {
     console.error('[Signup] Exception:', error)
-    
-    // Check for network errors
-    if (error.message?.includes('fetch') || error.message?.includes('network')) {
-      return { 
-        success: false, 
-        error: 'Network error: Cannot connect to database' 
-      }
-    }
-
     return { 
       success: false, 
-      error: error?.message || 'Signup failed' 
+      error: error?.message || 'Signup failed unexpectedly' 
     }
   }
 }
 
-// Login - Works with email OR username
 export async function login(
   identifier: string,
   password: string
 ): Promise<{ success: boolean; error?: string; user?: User }> {
   try {
-    console.log('[Login] Starting login attempt', { identifier })
+    // Normalize input
+    const normalizedIdentifier = identifier.trim().toLowerCase()
+    
+    console.log('[Login] Attempting login for:', normalizedIdentifier)
 
-    // Validate inputs
-    if (!identifier || identifier.trim().length < 3) {
-      return { success: false, error: 'Email or username must be at least 3 characters' }
-    }
-    if (!password || password.length < 6) {
-      return { success: false, error: 'Password must be at least 6 characters' }
-    }
-
-    // Try to find by email first
-    console.log('[Login] Searching by email...')
-    let { data: users, error } = await (supabase
-      .from('users') as any)
+    // Query user from database
+    const { data: users, error: queryError } = await supabase
+      .from('users')
       .select('*')
-      .eq('email', identifier)
+      .or(`email.eq.${normalizedIdentifier},username.eq.${normalizedIdentifier}`)
 
-    if (error) {
-      console.error('[Login] Email search error:', error)
-      return { success: false, error: 'Database connection failed. Check Supabase configuration.' }
-    }
-
-    // If not found by email, try username
-    if (!users || users.length === 0) {
-      console.log('[Login] Not found by email, searching by username...')
-      const { data: usersByUsername, error: usernameError } = await (supabase
-        .from('users') as any)
-        .select('*')
-        .eq('username', identifier)
-      
-      if (usernameError) {
-        console.error('[Login] Username search error:', usernameError)
-        return { success: false, error: 'Database connection failed. Check Supabase configuration.' }
-      }
-      users = usersByUsername
+    if (queryError) {
+      console.error('[Login] Database error:', queryError)
+      return { success: false, error: 'Database connection error' }
     }
 
     if (!users || users.length === 0) {
@@ -159,217 +116,114 @@ export async function login(
       return { success: false, error: 'Email/username or password is incorrect' }
     }
 
-    const user = users[0] as any
-    console.log('[Login] User found, verifying password...')
+    const user = users[0]
+    console.log('[Login] User found:', user.username)
 
-    // Verify password (check multiple hash formats for compatibility)
-    const hashesToCompare = [
-      hashPassword(password),
-      btoa(password + 'life_tracker_salt') // For backward compatibility
-    ]
-    const passwordMatch = hashesToCompare.some(hash => hash === user.password_hash)
+    // Hash the provided password using THE SAME function as signup
+    const providedPasswordHash = hashPassword(password.trim())
+    const storedPasswordHash = user.password_hash
 
-    if (!passwordMatch) {
-      console.log('[Login] Password mismatch')
+    console.log('[Login] Hash comparison:', {
+      provided: providedPasswordHash.substring(0, 20) + '...',
+      stored: storedPasswordHash.substring(0, 20) + '...',
+      match: providedPasswordHash === storedPasswordHash
+    })
+
+    // Compare passwords
+    if (storedPasswordHash !== providedPasswordHash) {
+      console.log('[Login] Password does not match')
       return { success: false, error: 'Email/username or password is incorrect' }
     }
 
-    // Update last login
-    await (supabase
-      .from('users') as any)
+    console.log('[Login] Login successful!')
+
+    // Update last login timestamp
+    await supabase
+      .from('users')
       .update({ last_login: new Date().toISOString() })
       .eq('id', user.id)
 
-    console.log('[Login] ✅ Login successful for user:', user.id)
+    // Create session
     setSession(user)
+
     return { success: true, user }
+
   } catch (error: any) {
     console.error('[Login] Exception:', error)
-    
-    // Check for network errors
-    if (error.message?.includes('fetch') || error.message?.includes('network')) {
-      return { 
-        success: false, 
-        error: 'Network error: Cannot connect to database' 
-      }
-    }
-
-    return { 
-      success: false, 
-      error: error?.message || 'Login failed' 
-    }
+    return { success: false, error: 'Login failed' }
   }
 }
 
-// Password reset with OTP
 export async function sendPasswordResetOTP(email: string) {
   try {
-    // Validate input
-    if (!email || email.trim().length < 3) {
-      return { success: false, error: 'Email must be at least 3 characters' }
-    }
-
-    console.log('[SendOTP] Checking if email exists...')
-    
-    // Check if email exists
-    const { data: user, error: checkError } = await (supabase
-      .from('users') as any)
+    const { data: user } = await supabase
+      .from('users')
       .select('id, email, username')
-      .eq('email', email)
+      .eq('email', email.toLowerCase())
       .single()
 
-    if (checkError) {
-      console.error('[SendOTP] Email check error:', checkError)
-      return { success: false, error: 'Database connection failed. Check Supabase configuration.' }
-    }
-
     if (!user) {
-      return { success: false, error: 'No account found with this email' }
+      return { success: false, error: 'No account found' }
     }
 
-    // Generate OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString()
     const expiresAt = new Date()
     expiresAt.setMinutes(expiresAt.getMinutes() + 10)
 
-    console.log('[SendOTP] Storing OTP for email:', email)
-
-    // Store OTP
-    const { error } = await (supabase
-      .from('otp_codes') as any)
+    await supabase
+      .from('otp_codes')
       .insert({
-        email,
+        email: email.toLowerCase(),
         otp_code: otp,
         purpose: 'password_reset',
         expires_at: expiresAt.toISOString()
       })
 
-    if (error) {
-      console.error('[SendOTP] OTP storage error:', error)
-      return { success: false, error: 'Failed to generate reset code' }
-    }
-
-    // Log OTP to console (replace with email service later)
-    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
-    console.log('📧 PASSWORD RESET OTP')
-    console.log('Email:', email)
-    console.log('Username:', user.username)
-    console.log('🔑 CODE:', otp)
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n')
+    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━')
+    console.log('📧 RESET CODE:', otp)
+    console.log('👤 Username:', user.username)
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━\n')
 
     return { success: true, username: user.username }
   } catch (error: any) {
-    console.error('[SendOTP] Exception:', error)
-    
-    // Check for network errors
-    if (error.message?.includes('fetch') || error.message?.includes('network')) {
-      return { 
-        success: false, 
-        error: 'Network error: Cannot connect to database' 
-      }
-    }
-
-    return { success: false, error: error?.message || 'Failed to send reset code' }
+    return { success: false, error: 'Failed to send code' }
   }
 }
 
 export async function verifyResetOTP(email: string, otp: string) {
-  try {
-    // Validate inputs
-    if (!email || email.trim().length < 3) {
-      return { success: false, error: 'Email must be at least 3 characters' }
-    }
-    if (!otp || otp.length !== 6) {
-      return { success: false, error: 'OTP must be 6 digits' }
-    }
+  const { data } = await supabase
+    .from('otp_codes')
+    .select('*')
+    .eq('email', email.toLowerCase())
+    .eq('otp_code', otp)
+    .eq('purpose', 'password_reset')
+    .eq('used', false)
+    .gt('expires_at', new Date().toISOString())
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single()
 
-    console.log('[VerifyOTP] Checking OTP for email:', email)
-
-    const { data, error } = await (supabase
-      .from('otp_codes') as any)
-      .select('*')
-      .eq('email', email)
-      .eq('otp_code', otp)
-      .eq('purpose', 'password_reset')
-      .eq('used', false)
-      .gt('expires_at', new Date().toISOString())
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single()
-
-    if (error || !data) {
-      console.error('[VerifyOTP] Invalid or expired code')
-      return { success: false, error: 'Invalid or expired code' }
-    }
-
-    console.log('[VerifyOTP] ✓ OTP valid, marking as used')
-
-    // Mark as used
-    const { error: updateError } = await (supabase
-      .from('otp_codes') as any)
-      .update({ used: true })
-      .eq('id', data.id)
-
-    if (updateError) {
-      console.error('[VerifyOTP] Failed to mark OTP as used:', updateError)
-      return { success: false, error: 'Failed to verify code' }
-    }
-
-    return { success: true }
-  } catch (error: any) {
-    console.error('[VerifyOTP] Exception:', error)
-    
-    // Check for network errors
-    if (error.message?.includes('fetch') || error.message?.includes('network')) {
-      return { 
-        success: false, 
-        error: 'Network error: Cannot connect to database' 
-      }
-    }
-
-    return { success: false, error: error?.message || 'Failed to verify code' }
+  if (!data) {
+    return { success: false, error: 'Invalid or expired code' }
   }
+
+  await supabase
+    .from('otp_codes')
+    .update({ used: true })
+    .eq('id', data.id)
+
+  return { success: true }
 }
 
 export async function resetPassword(email: string, newPassword: string) {
-  try {
-    // Validate inputs
-    if (!email || email.trim().length < 3) {
-      return { success: false, error: 'Email must be at least 3 characters' }
-    }
-    if (!newPassword || newPassword.length < 6) {
-      return { success: false, error: 'Password must be at least 6 characters' }
-    }
+  const { error } = await supabase
+    .from('users')
+    .update({ password_hash: hashPassword(newPassword) })
+    .eq('email', email.toLowerCase())
 
-    console.log('[ResetPassword] Resetting password for email:', email)
-
-    const { error } = await (supabase
-      .from('users') as any)
-      .update({ password_hash: hashPassword(newPassword) })
-      .eq('email', email)
-
-    if (error) {
-      console.error('[ResetPassword] Password reset error:', error)
-      return { success: false, error: 'Failed to reset password' }
-    }
-
-    console.log('[ResetPassword] ✅ Password reset successful')
-    return { success: true }
-  } catch (error: any) {
-    console.error('[ResetPassword] Exception:', error)
-    
-    // Check for network errors
-    if (error.message?.includes('fetch') || error.message?.includes('network')) {
-      return { 
-        success: false, 
-        error: 'Network error: Cannot connect to database' 
-      }
-    }
-
-    return { success: false, error: error?.message || 'Failed to reset password' }
-  }
+  return error ? { success: false, error: 'Reset failed' } : { success: true }
 }
-// Session management
+
 export function setSession(user: User) {
   if (typeof window === 'undefined') return
   sessionStorage.setItem(SESSION_KEY, 'true')

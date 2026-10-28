@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { 
   signup, 
@@ -31,6 +31,18 @@ export default function AuthPage() {
   const [loading, setLoading] = useState(false)
   
   const router = useRouter()
+
+  // Supabase sends link errors back in the URL hash (e.g. expired link). Show them, then clean the URL.
+  useEffect(() => {
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+    const code = hash.get('error_code')
+    if (hash.get('error') || code) {
+      setError(code === 'otp_expired'
+        ? 'That email link is invalid, already used, or expired. Sign up again or request a new link, and use only the newest email.'
+        : 'That email link could not be used. Please request a new one.')
+      window.history.replaceState(null, '', window.location.pathname)
+    }
+  }, [])
 
   async function handleCredentialsSubmit(e: React.FormEvent) {
     e.preventDefault()

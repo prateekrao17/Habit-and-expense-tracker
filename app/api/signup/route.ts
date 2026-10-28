@@ -34,7 +34,9 @@ export async function POST(req: Request) {
 
   // Only allow redirects back to this same site.
   const origin = new URL(req.url).origin
-  const emailRedirectTo = redirectTo.startsWith(origin) ? redirectTo : `${origin}/auth`
+  // Confirmation links land on /auth/confirm (token_hash, verified on click).
+  void redirectTo
+  const emailRedirectTo = `${origin}/auth/confirm`
 
   try {
     const admin = getAdminClient()

@@ -49,7 +49,7 @@ export async function signup(
     const res = await fetch('/api/signup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, username, mobile, redirectTo: `${window.location.origin}/auth` }),
+      body: JSON.stringify({ email, password, username, mobile, redirectTo: `${window.location.origin}/auth/confirm` }),
     })
     const body = await res.json().catch(() => ({}))
     if (!res.ok) return { success: false, error: body.error || 'Signup failed' }

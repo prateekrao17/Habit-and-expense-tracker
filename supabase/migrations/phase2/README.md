@@ -17,6 +17,8 @@ Confirm a fresh backup taken today (Supabase → Database → Backups, or a `pg_
 | 03 | 03_signup_trigger.sql | write | `Success. No rows returned` | None |
 | 04 | 04_claim_functions.sql | write | `Success. No rows returned` | None |
 | 05 | 05_owner_policies.sql | write | `Success. No rows returned` | Old production code still can't log in (it uses the removed custom login). Only the Preview build works. |
+| 07 | 07_integrity.sql (run 07a check in the file header first) | write (constraints) | `Success. No rows returned` | None; duplicate same-day check-ins are rejected |
+| 08 | 08_optional_amount_numeric.sql (optional; run 08a first) | write (column type) | `Success. No rows returned` | None; brief table lock |
 | 06 | 06_verify_readonly.sql | read-only | The rows marked `expect` must match. `users_ids_md5_legacy_only` must equal 00's `users_ids_md5`, and the habits, completions, expenses and notes md5 values must equal 00 until test data is added. Send the CSV. | None |
 
 Each write file is one transaction: if it errors, nothing from that file is applied, and the database stays in the previous row's state. Always at least deny-all.
@@ -24,7 +26,7 @@ Each write file is one transaction: if it errors, nothing from that file is appl
 If step 02 fails with "could not create unique index", a duplicate exists. Nothing was changed. Send me the error.
 
 ## Rollback (never opens data)
-Use `rollback/` files in reverse order: R05 → R04 → R03 → R02. The fallback state is deny-all.
+Use `rollback/` files in reverse order: R08 → R07 → R05 → R04 → R03 → R02. The fallback state is deny-all.
 - No rollback file disables RLS or grants anything to `anon`.
 - Step 01 has no rollback by design.
 - Rollback never deletes users, habits, completions, expenses or notes.
@@ -41,7 +43,7 @@ Use `rollback/` files in reverse order: R05 → R04 → R03 → R02. The fallbac
 Supabase → Authentication:
 1. Sign In / Providers → Email: enabled. **Confirm email: ON.**
 2. URL Configuration: Site URL = your production URL. Redirect URLs: add your Vercel preview pattern, e.g. `https://*-prateekrao17.vercel.app/**`, and `http://localhost:3000/**`.
-3. Emails → **Reset Password** template: include `{{ .Token }}` (the 6-digit code the app's reset screen asks for), e.g. `Your reset code is {{ .Token }}`.
+3. Emails → templates (see RECOVERY.md for the exact HTML). Confirm signup: link to `{{ .RedirectTo }}?token_hash={{ .TokenHash }}&type=email` (the default `{{ .ConfirmationURL }}` also works now). Reset Password: include `{{ .Token }}` and a link to `{{ .RedirectTo }}?token_hash={{ .TokenHash }}&type=recovery`. Use `{{ .RedirectTo }}`, not `{{ .SiteURL }}`: Site URL is production, so links built from it never reach the Preview.
 4. Email OTP expiration: 3600 seconds.
 5. Recommended: custom SMTP (the built-in sender allows only a few emails per hour).
 

@@ -21,6 +21,11 @@ select * from (
   union all select 12, 'dup_mobile_no', count(*)::text
     from (select mobile_no from public.users where mobile_no is not null group by 1 having count(*) > 1) d
 
+  union all select 13, 'dup_completions_same_habit_day', count(*)::text
+    from (select habit_id, completion_date from public.habit_completions group by 1, 2 having count(*) > 1) d
+  union all select 14, 'expenses_amount_not_positive', count(*)::text
+    from public.expenses where amount is null or amount <= 0
+
   -- Accounts whose stored email is a placeholder (cannot receive mail -> owner-assisted claim)
   union all select 20, 'placeholder_emails_local_app', count(*)::text
     from public.users where email ilike '%@local.app'

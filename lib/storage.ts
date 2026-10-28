@@ -1,499 +1,243 @@
 import { supabase } from './supabase'
 import { getCurrentUserId } from './auth'
+import { toLocalDateStr, isDateStr, isWithinEditWindow } from './dates'
+import { computeStreaks } from './streaks'
+import { paiseToDbAmount } from './money'
+
+// Data access for habits and expenses. Every request is authorised by the
+// Supabase session; RLS (step 05) restricts rows to the signed-in owner.
+// The user_id filters below are a second guard, not the security boundary.
+
+export type Result<T = undefined> = { ok: true; data: T } | { ok: false; error: string }
+
+const ok = <T,>(data: T): Result<T> => ({ ok: true, data })
+const fail = (error: string): Result<never> => ({ ok: false, error })
 
 export interface Habit {
   id: string
   name: string
   current_streak: number
   best_streak: number
-  last_completed: string
+  last_completed: string | null
   color?: string
-  completions?: Array<{ date: string }>
+  created_at?: string
+  completions: string[] // local 'YYYY-MM-DD' dates, unique, ascending
 }
 
 export interface Expense {
   id: string
-  amount: number
+  amount: number | string
   category: string
-  description: string
-  date?: string
+  description: string | null
   expense_date: string
   created_at?: string
 }
 
-export let EXPENSE_CATEGORIES = [
-  'Food',
-  'Transport',
-  'Entertainment',
-  'Bills',
-  'Rent',
-  'Trip',
-  'Health',
-  'Shopping',
-  'Education',
-  'Investment',
-  'Other'
+export const EXPENSE_CATEGORIES = [
+  'Food', 'Transport', 'Entertainment', 'Bills', 'Rent', 'Trip',
+  'Health', 'Shopping', 'Education', 'Investment', 'Other',
 ]
 
-function getUserKey(baseKey: string, userId?: string): string {
-  const id = userId || getCurrentUserId()
-  if (!id) return baseKey
-  return `${baseKey}_user_${id}`
+function requireUser(): string | null {
+  return getCurrentUserId()
 }
 
-function generateId(): string {
-  return Math.random().toString(36).substr(2, 9)
-}
+// ---------------- Habits ----------------
 
-function isDateAllowed(dateString: string): boolean {
-  const date = new Date(dateString)
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  
-  const checkDate = new Date(date)
-  checkDate.setHours(0, 0, 0, 0)
-  
-  // Calculate 3 days ago
-  const threeDaysAgo = new Date(today)
-  threeDaysAgo.setDate(today.getDate() - 3)
-  
-  // Date must be between 3 days ago and today (inclusive)
-  return checkDate >= threeDaysAgo && checkDate <= today
-}
+export async function getHabits(): Promise<Result<Habit[]>> {
+  const userId = requireUser()
+  if (!userId) return fail('Not signed in')
 
-export function isDateAllowedExport(dateString: string): boolean {
-  return isDateAllowed(dateString)
-}
+  const [h, c] = await Promise.all([
+    supabase.from('habits').select('id, name, current_streak, best_streak, last_completed, color, created_at')
+      .eq('user_id', userId).order('created_at', { ascending: true }),
+    supabase.from('habit_completions').select('habit_id, completion_date')
+      .eq('user_id', userId),
+  ])
+  if (h.error || c.error) return fail('Could not load habits')
 
-// Helper to generate date strings
-function getDateStr(date: Date = new Date()): string {
-  const d = new Date(date)
-  d.setHours(0, 0, 0, 0)
-  return d.toISOString().split('T')[0]
-}
-
-// Helper to get week dates
-export function getCurrentWeekDates(): string[] {
-  const today = new Date()
-  const dayOfWeek = today.getDay()
-  const firstDay = new Date(today)
-  firstDay.setDate(today.getDate() - dayOfWeek)
-  
-  const dates: string[] = []
-  for (let i = 0; i < 7; i++) {
-    const date = new Date(firstDay)
-    date.setDate(firstDay.getDate() + i)
-    dates.push(getDateStr(date))
+  const byHabit = new Map<string, Set<string>>()
+  for (const row of c.data || []) {
+    const set = byHabit.get(row.habit_id) || new Set<string>()
+    set.add(String(row.completion_date).slice(0, 10))
+    byHabit.set(row.habit_id, set)
   }
-  return dates
+  return ok((h.data || []).map((x) => ({
+    ...x,
+    completions: Array.from(byHabit.get(x.id) || []).sort(),
+  })) as Habit[])
 }
 
-// Get all dates in a month
-export function getMonthDates(year: number, month: number): string[] {
-  const dates: string[] = []
-  const lastDay = new Date(year, month + 1, 0).getDate()
-  
-  for (let day = 1; day <= lastDay; day++) {
-    const date = new Date(year, month, day)
-    dates.push(getDateStr(date))
-  }
-  return dates
-}
-
-// Get month info for year view
-export function getYearMonths(year: number): Array<{ month: number; name: string }> {
-  const months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-  ]
-  
-  return months.map((name, index) => ({
-    month: index,
-    name
-  }))
-}
-
-// Habits
-export async function getHabits(): Promise<Habit[]> {
-  const userId = getCurrentUserId()
-  if (!userId) return []
-
-  const { data, error } = await supabase
-    .from('habits')
-    .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: true })
-
-  if (error) {
-    console.error('[getHabits] Error:', error)
-    return []
-  }
-
-  console.log('[getHabits] Found', data?.length || 0, 'habits')
-  return data || []
-}
-
-export async function addHabit(name: string): Promise<Habit | null> {
-  const userId = getCurrentUserId()
-  if (!userId) {
-    console.error('[addHabit] No user ID found')
-    return null
-  }
-
-  console.log('[addHabit] Creating habit for user:', userId)
-
-  const { data, error } = await supabase
-    .from('habits')
-    .insert({
-      user_id: userId,
-      name,
-      current_streak: 0,
-      best_streak: 0,
-      color: '#3b82f6'
-    })
-    .select()
-    .single()
-
-  if (error) {
-    console.error('[addHabit] Error:', error)
-    return null
-  }
-
-  console.log('[addHabit] Success:', data)
-  return data
-}
-
-export async function tickHabit(habitId: string, date?: string): Promise<boolean> {
-  const userId = getCurrentUserId()
-  if (!userId) return false
-
-  const today = new Date().toISOString().split('T')[0]
-  const dateToTick = date || today
-
-  // Validate date is allowed
-  if (!isDateAllowed(dateToTick)) {
-    console.log('[tickHabit] Date not allowed:', dateToTick)
-    alert('You can only mark habits for today or the past 3 days')
-    return false
-  }
-
-  console.log('[tickHabit] Ticking habit:', habitId, 'for date:', dateToTick)
-
-  // Check if already completed
-  const { data: existing } = await supabase
-    .from('habit_completions')
-    .select('id')
-    .eq('habit_id', habitId)
-    .eq('completion_date', dateToTick)
-    .single()
-
-  if (existing) {
-    console.log('[tickHabit] Already completed')
-    return true
-  }
-
-  // Add completion
-  const { error: insertError } = await supabase
-    .from('habit_completions')
-    .insert({
-      habit_id: habitId,
-      user_id: userId,
-      completion_date: dateToTick,
-      completed: true
-    })
-
-  if (insertError) {
-    console.error('[tickHabit] Error:', insertError)
-    return false
-  }
-
-  // Update streak
-  const { data: habit } = await supabase
-    .from('habits')
-    .select('current_streak, best_streak, last_completed')
-    .eq('id', habitId)
-    .single()
-
-  if (!habit) return false
-
-  const yesterday = new Date()
-  yesterday.setDate(yesterday.getDate() - 1)
-  const yesterdayStr = yesterday.toISOString().split('T')[0]
-  const lastDate = habit.last_completed?.split('T')[0]
-
-  const isConsecutive = lastDate === yesterdayStr || lastDate === today
-  const newStreak = isConsecutive ? habit.current_streak + 1 : 1
-  const newBest = Math.max(newStreak, habit.best_streak)
-
-  await supabase
-    .from('habits')
-    .update({
-      current_streak: newStreak,
-      best_streak: newBest,
-      last_completed: new Date().toISOString()
-    })
-    .eq('id', habitId)
-
-  console.log('[tickHabit] Success! New streak:', newStreak)
-  return true
-}
-
-export async function untickHabit(habitId: string, date: string): Promise<boolean> {
-  const userId = getCurrentUserId()
-  if (!userId) return false
-
-  // Validate date is allowed
-  if (!isDateAllowed(date)) {
-    console.log('[untickHabit] Date not allowed:', date)
-    alert('You can only modify habits for today or the past 3 days')
-    return false
-  }
-
-  console.log('[untickHabit] Unticking habit:', habitId, 'for date:', date)
-
-  // Delete the completion
-  const { error } = await supabase
-    .from('habit_completions')
-    .delete()
-    .eq('habit_id', habitId)
-    .eq('completion_date', date)
-
-  if (error) {
-    console.error('[untickHabit] Error:', error)
-    return false
-  }
-
-  // Recalculate streak (simplified)
-  const { data: completions } = await supabase
-    .from('habit_completions')
-    .select('completion_date')
-    .eq('habit_id', habitId)
-    .order('completion_date', { ascending: false })
-
-  const streak = calculateStreak(completions?.map(c => c.completion_date) || [])
-
-  await supabase
-    .from('habits')
-    .update({
-      current_streak: streak,
-      last_completed: completions?.[0]?.completion_date || null
-    })
-    .eq('id', habitId)
-
-  console.log('[untickHabit] Success!')
-  return true
-}
-
-function calculateStreak(dates: string[]): number {
-  if (dates.length === 0) return 0
-  
-  let streak = 0
-  const today = new Date().toISOString().split('T')[0]
-  const sortedDates = [...dates].sort().reverse()
-  
-  for (let i = 0; i < sortedDates.length; i++) {
-    const expectedDate = new Date()
-    expectedDate.setDate(expectedDate.getDate() - i)
-    const expectedStr = expectedDate.toISOString().split('T')[0]
-    
-    if (sortedDates[i] === expectedStr) {
-      streak++
-    } else {
-      break
-    }
-  }
-  
-  return streak
-}
-
-export async function deleteHabit(habitId: string): Promise<boolean> {
-  const userId = getCurrentUserId()
-  if (!userId) return false
-
-  const { error } = await supabase
-    .from('habits')
-    .delete()
-    .eq('id', habitId)
-    .eq('user_id', userId)
-
-  if (error) {
-    console.error('[deleteHabit] Error:', error)
-    return false
-  }
-
-  return true
-}
-
-// Habit stats
-export function getHabitStats(habitId: string): {
-  currentStreak: number
-  monthCompletions: number
-  monthTotal: number
-  monthPercentage: number
-  yearCompletions: number
-} | null {
-  // Note: This is synchronous, called from useEffect
-  // In real implementation, would need to be async
+function validateHabitName(name: string): string | null {
+  const n = name.trim()
+  if (!n) return 'Habit name is required'
+  if (n.length > 100) return 'Habit name must be 100 characters or fewer'
   return null
 }
 
-// Expenses
-export async function getExpenses(): Promise<Expense[]> {
-  const userId = getCurrentUserId()
-  if (!userId) return []
+export async function addHabit(name: string): Promise<Result<Habit>> {
+  const userId = requireUser()
+  if (!userId) return fail('Not signed in')
+  const err = validateHabitName(name)
+  if (err) return fail(err)
 
   const { data, error } = await supabase
-    .from('expenses')
-    .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-
-  if (error) {
-    console.error('[getExpenses] Error:', error)
-    return []
-  }
-
-  console.log('[getExpenses] Found', data?.length || 0, 'expenses')
-  return data || []
-}
-
-export async function addExpense(
-  amount: number,
-  category: string,
-  description: string
-): Promise<Expense | null> {
-  const userId = getCurrentUserId()
-  if (!userId) {
-    console.error('[addExpense] No user ID found')
-    return null
-  }
-
-  console.log('[addExpense] Creating expense for user:', userId)
-
-  const { data, error } = await supabase
-    .from('expenses')
-    .insert({
-      user_id: userId,
-      amount,
-      category,
-      description,
-      expense_date: new Date().toISOString().split('T')[0]
-    })
-    .select()
+    .from('habits')
+    .insert({ user_id: userId, name: name.trim(), current_streak: 0, best_streak: 0, color: '#3b82f6' })
+    .select('id, name, current_streak, best_streak, last_completed, color, created_at')
     .single()
-
-  if (error) {
-    console.error('[addExpense] Error:', error)
-    return null
-  }
-
-  console.log('[addExpense] Success:', data)
-  return data
+  if (error || !data) return fail('Could not add habit')
+  return ok({ ...(data as Omit<Habit, 'completions'>), completions: [] })
 }
 
-export async function deleteExpense(expenseId: string): Promise<boolean> {
-  const userId = getCurrentUserId()
-  if (!userId) return false
+export async function renameHabit(habitId: string, name: string): Promise<Result> {
+  const userId = requireUser()
+  if (!userId) return fail('Not signed in')
+  const err = validateHabitName(name)
+  if (err) return fail(err)
+  const { error } = await supabase.from('habits').update({ name: name.trim() }).eq('id', habitId).eq('user_id', userId)
+  return error ? fail('Could not update habit') : ok(undefined)
+}
 
-  const { error } = await supabase
-    .from('expenses')
-    .delete()
-    .eq('id', expenseId)
+export async function deleteHabit(habitId: string): Promise<Result> {
+  const userId = requireUser()
+  if (!userId) return fail('Not signed in')
+  // Remove the habit's check-ins first so nothing is left orphaned.
+  const c = await supabase.from('habit_completions').delete().eq('habit_id', habitId).eq('user_id', userId)
+  if (c.error) return fail('Could not delete habit')
+  const { error } = await supabase.from('habits').delete().eq('id', habitId).eq('user_id', userId)
+  return error ? fail('Could not delete habit') : ok(undefined)
+}
+
+// Keeps the cached streak columns on `habits` in step with the real history.
+// The UI always calculates streaks from completions; these columns are only a cache.
+async function syncStreakCache(habitId: string, userId: string): Promise<void> {
+  const { data } = await supabase.from('habit_completions').select('completion_date')
+    .eq('habit_id', habitId).eq('user_id', userId)
+  const info = computeStreaks((data || []).map((r) => String(r.completion_date)), toLocalDateStr())
+  await supabase.from('habits').update({
+    current_streak: info.current,
+    best_streak: info.longest,
+    last_completed: info.last,
+  }).eq('id', habitId).eq('user_id', userId)
+}
+
+export async function setHabitCompletion(habitId: string, date: string, done: boolean): Promise<Result> {
+  const userId = requireUser()
+  if (!userId) return fail('Not signed in')
+  if (!isWithinEditWindow(date)) return fail('You can only change today or the past 3 days')
+
+  if (done) {
+    const { data: existing, error: readErr } = await supabase.from('habit_completions').select('id')
+      .eq('habit_id', habitId).eq('user_id', userId).eq('completion_date', date).limit(1)
+    if (readErr) return fail('Could not save check-in')
+    if (!existing || existing.length === 0) {
+      const { error } = await supabase.from('habit_completions')
+        .insert({ habit_id: habitId, user_id: userId, completion_date: date, completed: true })
+      // 23505 = unique violation (already ticked, e.g. double click) -> fine.
+      if (error && error.code !== '23505') return fail('Could not save check-in')
+    }
+  } else {
+    const { error } = await supabase.from('habit_completions').delete()
+      .eq('habit_id', habitId).eq('user_id', userId).eq('completion_date', date)
+    if (error) return fail('Could not undo check-in')
+  }
+
+  await syncStreakCache(habitId, userId)
+  return ok(undefined)
+}
+
+// ---------------- Expenses ----------------
+
+export interface ExpenseInput {
+  amountPaise: number
+  category: string
+  description: string
+  date: string
+}
+
+function validateExpense(i: ExpenseInput): string | null {
+  if (!Number.isSafeInteger(i.amountPaise) || i.amountPaise <= 0) return 'Enter an amount greater than 0'
+  const cat = i.category.trim()
+  if (!cat || cat.length > 50) return 'Choose a category'
+  if (i.description.length > 300) return 'Description must be 300 characters or fewer'
+  if (!isDateStr(i.date)) return 'Enter a valid date'
+  if (i.date > toLocalDateStr()) return 'Date cannot be in the future'
+  return null
+}
+
+export async function getExpenses(): Promise<Result<Expense[]>> {
+  const userId = requireUser()
+  if (!userId) return fail('Not signed in')
+  const { data, error } = await supabase.from('expenses')
+    .select('id, amount, category, description, expense_date, created_at')
     .eq('user_id', userId)
-
-  if (error) {
-    console.error('[deleteExpense] Error:', error)
-    return false
-  }
-
-  return true
+    .order('expense_date', { ascending: false })
+    .order('created_at', { ascending: false })
+  if (error) return fail('Could not load expenses')
+  return ok(((data || []) as Expense[]).map((e) => ({ ...e, expense_date: String(e.expense_date).slice(0, 10) })))
 }
 
-export function getMonthExpenses(expenses: Expense[]): Expense[] {
-  const now = new Date()
-  const month = now.toISOString().slice(0, 7)
-  
-  return expenses.filter(e => {
-    const expenseMonth = (e.expense_date || e.date || '').slice(0, 7)
-    return expenseMonth === month
+export async function addExpense(input: ExpenseInput): Promise<Result> {
+  const userId = requireUser()
+  if (!userId) return fail('Not signed in')
+  const err = validateExpense(input)
+  if (err) return fail(err)
+  const { error } = await supabase.from('expenses').insert({
+    user_id: userId,
+    amount: paiseToDbAmount(input.amountPaise),
+    category: input.category.trim(),
+    description: input.description.trim(),
+    expense_date: input.date,
   })
+  return error ? fail('Could not add expense') : ok(undefined)
 }
 
-export function getYearExpenses(expenses: Expense[], year: number): Expense[] {
-  return expenses.filter(e => {
-    const expenseYear = new Date(e.expense_date || e.date || '').getFullYear()
-    return expenseYear === year
-  })
+export async function updateExpense(expenseId: string, input: ExpenseInput): Promise<Result> {
+  const userId = requireUser()
+  if (!userId) return fail('Not signed in')
+  const err = validateExpense(input)
+  if (err) return fail(err)
+  const { error } = await supabase.from('expenses').update({
+    amount: paiseToDbAmount(input.amountPaise),
+    category: input.category.trim(),
+    description: input.description.trim(),
+    expense_date: input.date,
+  }).eq('id', expenseId).eq('user_id', userId)
+  return error ? fail('Could not update expense') : ok(undefined)
 }
 
-export function getMonthlyExpenseBreakdown(expenses: Expense[]): Record<string, number> {
-  const breakdown: Record<string, number> = {}
-  
-  expenses.forEach(e => {
-    const month = (e.expense_date || e.date || '').slice(0, 7)
-    breakdown[month] = (breakdown[month] || 0) + Number(e.amount)
-  })
-  
-  return breakdown
+export async function deleteExpense(expenseId: string): Promise<Result> {
+  const userId = requireUser()
+  if (!userId) return fail('Not signed in')
+  const { error } = await supabase.from('expenses').delete().eq('id', expenseId).eq('user_id', userId)
+  return error ? fail('Could not delete expense') : ok(undefined)
 }
 
-export function getCategoryBreakdown(
-  expenses: Expense[]
-): Array<{ category: string; total: number; percentage: number }> {
-  const breakdown: Record<string, number> = {}
-  let total = 0
-  
-  expenses.forEach(e => {
-    const amount = Number(e.amount)
-    breakdown[e.category] = (breakdown[e.category] || 0) + amount
-    total += amount
-  })
-  
-  return Object.entries(breakdown)
-    .map(([category, amount]) => ({
-      category,
-      total: amount,
-      percentage: total > 0 ? Math.round((amount / total) * 100) : 0
-    }))
-    .sort((a, b) => b.total - a.total)
-}
-
-// Custom Category Management (localStorage for local user preferences)
+// Custom categories are a per-browser display preference only (no private data).
 export function getCustomCategories(): string[] {
   if (typeof window === 'undefined') return []
   const userId = getCurrentUserId()
   if (!userId) return []
-  
-  const stored = localStorage.getItem(`custom_categories_${userId}`)
-  return stored ? JSON.parse(stored) : []
+  try {
+    const parsed = JSON.parse(localStorage.getItem(`custom_categories_${userId}`) || '[]')
+    return Array.isArray(parsed) ? parsed.filter((c) => typeof c === 'string') : []
+  } catch {
+    return []
+  }
 }
 
 export function saveCustomCategory(category: string): boolean {
   if (typeof window === 'undefined') return false
   const userId = getCurrentUserId()
-  if (!userId) return false
-  
+  const c = category.trim()
+  if (!userId || !c || c.length > 50) return false
   const custom = getCustomCategories()
-  if (custom.includes(category) || EXPENSE_CATEGORIES.includes(category)) {
-    return false // Already exists
-  }
-  
-  custom.push(category)
-  localStorage.setItem(`custom_categories_${userId}`, JSON.stringify(custom))
+  if (custom.includes(c) || EXPENSE_CATEGORIES.includes(c)) return false
+  localStorage.setItem(`custom_categories_${userId}`, JSON.stringify([...custom, c]))
   return true
 }
 
-export function getAllExpenseCategories(): string[] {
-  return [...EXPENSE_CATEGORIES, ...getCustomCategories()]
-}
-
-export function deleteCustomCategory(category: string): boolean {
-  if (typeof window === 'undefined') return false
-  const userId = getCurrentUserId()
-  if (!userId) return false
-  
-  const custom = getCustomCategories()
-  const filtered = custom.filter(c => c !== category)
-  localStorage.setItem(`custom_categories_${userId}`, JSON.stringify(filtered))
-  return true
+export function getAllExpenseCategories(extra: string[] = []): string[] {
+  return Array.from(new Set([...EXPENSE_CATEGORIES, ...getCustomCategories(), ...extra]))
 }

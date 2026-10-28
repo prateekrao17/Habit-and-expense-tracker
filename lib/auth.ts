@@ -93,12 +93,13 @@ export async function claimLegacyAccount(identifier: string, oldPassword: string
   return await finishSignIn()
 }
 
-// Password reset uses Supabase's emailed 6-digit code (Reset Password email
-// template must include {{ .Token }}). Same answer whether or not the email exists.
+// Password reset: the Reset Password email can contain a link (to /auth/reset)
+// and/or the 6-digit {{ .Token }} code. Both paths are supported.
+// Same answer whether or not the email exists.
 export async function sendPasswordResetOTP(email: string): Promise<Result> {
   const clean = email.trim().toLowerCase()
   if (!clean.includes('@')) return { success: false, error: 'Enter the email address of your account' }
-  await supabase.auth.resetPasswordForEmail(clean, { redirectTo: `${window.location.origin}/auth` })
+  await supabase.auth.resetPasswordForEmail(clean, { redirectTo: `${window.location.origin}/auth/reset` })
   return { success: true }
 }
 
@@ -112,6 +113,7 @@ export async function verifyResetOTP(email: string, otp: string): Promise<Result
 }
 
 export async function resetPassword(_email: string, newPassword: string): Promise<Result> {
+  if (newPassword.length < 6 || newPassword.length > 200) return { success: false, error: 'Password must be at least 6 characters' }
   const { error } = await supabase.auth.updateUser({ password: newPassword })
   if (error) return { success: false, error: 'Reset failed' }
   await supabase.auth.signOut()
@@ -139,7 +141,12 @@ export function setSession(user: User) {
 export function getSession(): User | null {
   if (typeof window === 'undefined') return null
   const userStr = sessionStorage.getItem(USER_KEY)
-  return userStr ? JSON.parse(userStr) : null
+  if (!userStr) return null
+  try {
+    return JSON.parse(userStr) as User
+  } catch {
+    return null
+  }
 }
 
 export function isAuthenticated(): boolean {
@@ -165,7 +172,11 @@ function clearCache() {
   sessionStorage.removeItem(USER_KEY)
 }
 
-export function logout() {
+export async function logout(): Promise<void> {
   clearCache()
-  void supabase.auth.signOut()
+  try {
+    await supabase.auth.signOut()
+  } catch {
+    // Local session is cleared by signOut even if the network call fails.
+  }
 }

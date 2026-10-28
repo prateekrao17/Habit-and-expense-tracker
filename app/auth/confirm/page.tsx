@@ -4,12 +4,14 @@ import { useRouter } from 'next/navigation'
 import type { EmailOtpType } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { ensureSession } from '@/lib/auth'
+import { parseAuthLink } from '@/lib/auth-links'
 import { Lock, Mail } from 'lucide-react'
 
-// Email confirmation landing page.
-// The emailed link carries a one-time token_hash. It is verified ONLY when the
-// person clicks the button, so email link scanners / prefetchers (which just
-// load the page) cannot use up the token. Tokens are never logged.
+// Email confirmation landing page. Accepts every link format Supabase sends
+// (token_hash, PKCE ?code=, implicit #access_token, and error redirects), so
+// confirmation does not depend on one exact email-template setting.
+// A token_hash is verified only when the person clicks the button, so email
+// link scanners that merely load the page cannot use it up. Tokens are never logged.
 
 const ALLOWED_TYPES: EmailOtpType[] = ['email', 'signup']
 
@@ -24,31 +26,55 @@ export default function ConfirmPage() {
   const [resendMsg, setResendMsg] = useState('')
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const th = params.get('token_hash')
-    const t = params.get('type') as EmailOtpType | null
-    setTokenHash(th)
-    if (t && ALLOWED_TYPES.includes(t)) setType(t)
-    // Remove the token from the address bar / history.
+    const link = parseAuthLink(window.location.search, window.location.hash)
+    // Remove tokens from the address bar / history straight away.
     window.history.replaceState(null, '', '/auth/confirm')
-    setReady(true)
+
+    async function run() {
+      if (link.kind === 'token_hash') {
+        setTokenHash(link.tokenHash)
+        if ((ALLOWED_TYPES as string[]).includes(link.type)) setType(link.type as EmailOtpType)
+      } else if (link.kind === 'code') {
+        const { error } = await supabase.auth.exchangeCodeForSession(link.code)
+        if (!error) return routeAfterConfirm()
+        if (await alreadyConfirmed()) return routeAfterConfirm()
+        setError('Your email may already be confirmed, but this link must be opened in the same browser you signed up in. Try logging in, or request a new link below.')
+      } else if (link.kind === 'session') {
+        // Supabase already verified the email before redirecting here.
+        const { error } = await supabase.auth.setSession({ access_token: link.accessToken, refresh_token: link.refreshToken })
+        if (!error) return routeAfterConfirm()
+        setError('Your email is confirmed. Please log in.')
+      } else if (link.kind === 'error') {
+        setError(link.expired
+          ? 'This confirmation link is invalid, already used, or expired. If you already confirmed, just log in. Otherwise request a new link below.'
+          : 'This confirmation link could not be used. Request a new one below.')
+      } else if (await alreadyConfirmed()) {
+        return routeAfterConfirm()
+      }
+      setReady(true)
+    }
+    void run()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  async function alreadyConfirmed(): Promise<boolean> {
+    const { data } = await supabase.auth.getUser()
+    return !!data.user?.email_confirmed_at
+  }
+
   async function handleConfirm() {
-    if (!tokenHash) return
+    if (!tokenHash || loading) return
     setLoading(true)
     setError('')
     const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type })
     if (error) {
-      // Maybe a second click after a successful first one.
-      const { data } = await supabase.auth.getUser()
       setLoading(false)
-      if (data.user?.email_confirmed_at) {
+      if (await alreadyConfirmed()) {
         await routeAfterConfirm()
         return
       }
       setTokenHash(null)
-      setError('This confirmation link is invalid, already used, or expired. Request a new one below.')
+      setError('This confirmation link is invalid, already used, or expired. If you already confirmed, just log in. Otherwise request a new link below.')
       return
     }
     await routeAfterConfirm()
@@ -56,7 +82,7 @@ export default function ConfirmPage() {
 
   async function routeAfterConfirm() {
     const ok = await ensureSession()
-    router.push(ok ? '/' : '/claim')
+    router.replace(ok ? '/' : '/claim')
   }
 
   async function handleResend(e: React.FormEvent) {
@@ -88,7 +114,9 @@ export default function ConfirmPage() {
             </div>
           )}
 
-          {ready && tokenHash ? (
+          {!ready && !tokenHash && <p className="text-zinc-400 text-center">Checking your link...</p>}
+
+          {tokenHash ? (
             <>
               <p className="text-zinc-400 text-center mb-6">Click below to finish creating your account.</p>
               <button

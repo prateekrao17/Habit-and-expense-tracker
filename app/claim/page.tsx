@@ -43,7 +43,7 @@ export default function ClaimPage() {
       <div className="w-full max-w-md">
         <div className="bg-[#1a1a1a] border border-zinc-800 rounded-xl p-8 shadow-soft">
           <button
-            onClick={() => { logout(); router.push('/auth') }}
+            onClick={() => { logout().finally(() => router.push('/auth')) }}
             className="text-zinc-400 hover:text-white mb-4 flex items-center gap-2"
           >
             <ArrowLeft size={18} />

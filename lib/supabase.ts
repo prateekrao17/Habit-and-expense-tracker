@@ -14,9 +14,9 @@ if (!supabaseUrl || !supabaseKey) {
 
 export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseKey, {
   auth: {
-    persistSession: false,
-    autoRefreshToken: false,
-    detectSessionInUrl: false
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true
   },
   db: {
     schema: 'public'
@@ -27,27 +27,14 @@ export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseKey, {
 // lib/supabase/client.ts. Returns the same single client instance.
 export const createSupabaseClient = (): SupabaseClient => supabase
 
-// Test connection
-if (typeof window !== 'undefined') {
-  supabase
-    .from('users')
-    .select('count', { count: 'exact', head: true })
-    .then(({ error }) => {
-      if (error) {
-        console.error('❌ Supabase connection failed:', error.message)
-      } else {
-        console.log('✅ Supabase connected successfully')
-      }
-    })
-}
-
 export interface User {
   id: string
   email: string
   username: string
   created_at: string
   last_login?: string
-  password_hash?: string
+  mobile_no?: string | null
+  auth_id?: string | null
 }
 
 export interface Habit {

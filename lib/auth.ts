@@ -1,5 +1,10 @@
 import { supabase } from './supabase'
 
+// Authentication is handled by Supabase Auth. No passwords are hashed,
+// stored or compared in the browser. The cached profile below only holds
+// display info + the app user id; every database request is authorised by
+// the Supabase session token and enforced by RLS on the server.
+
 const SESSION_KEY = 'app_session'
 const USER_KEY = 'current_user'
 
@@ -10,212 +15,119 @@ interface User {
   created_at: string
 }
 
-function hashPassword(password: string): string {
-  return btoa(password + '_life_tracker_secret')
+type Result = { success: boolean; error?: string; user?: User; needsClaim?: boolean; message?: string }
+
+async function loadProfile(): Promise<User | null> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return null
+  const { data } = await supabase
+    .from('users')
+    .select('id, email, username, created_at')
+    .eq('auth_id', user.id)
+    .maybeSingle()
+  return (data as User) || null
 }
 
-function isMobileNumber(input: string): boolean {
-  // Check if input is exactly 10 digits
-  return /^\d{10}$/.test(input.trim())
-}
-
-function isEmail(input: string): boolean {
-  return input.includes('@')
+async function finishSignIn(): Promise<Result> {
+  const profile = await loadProfile()
+  if (!profile) {
+    // Signed in, but this email belongs to an existing account that has not been claimed yet.
+    return { success: false, needsClaim: true }
+  }
+  await supabase.from('users').update({ last_login: new Date().toISOString() }).eq('id', profile.id)
+  setSession(profile)
+  return { success: true, user: profile }
 }
 
 export async function signup(
-  emailOrUsernameOrMobile: string,
-  password: string
-): Promise<{ success: boolean; error?: string; user?: User }> {
+  email: string,
+  password: string,
+  username?: string,
+  mobile?: string
+): Promise<Result> {
   try {
-    console.log('[Signup] Starting signup')
-    
-    const input = emailOrUsernameOrMobile.trim()
-    const mobile = isMobileNumber(input) ? input : null
-    const isEmailInput = isEmail(input)
-    
-    const email = mobile 
-      ? `${mobile}@mobile.local`
-      : isEmailInput 
-      ? input.toLowerCase() 
-      : `${input.toLowerCase()}@local.app`
-    
-    const username = mobile
-      ? `user_${mobile}`
-      : isEmailInput 
-      ? input.split('@')[0].toLowerCase()
-      : input.toLowerCase()
-
-    console.log('[Signup] Processing:', { email, username, mobile })
-
-    // Check if user exists (email, username, OR mobile)
-    let query = supabase
-      .from('users')
-      .select('id')
-    
-    if (mobile) {
-      query = query.eq('mobile', mobile)
-    } else {
-      query = query.or(`email.eq.${email},username.eq.${username}`)
-    }
-    
-    const { data: existing } = await query
-
-    if (existing && existing.length > 0) {
-      return { 
-        success: false, 
-        error: mobile ? 'Mobile number already registered' : 'Email or username already exists' 
-      }
-    }
-
-    // Create user
-    const userData: any = {
-      email,
-      username,
-      password_hash: hashPassword(password.trim())
-    }
-    
-    if (mobile) {
-      userData.mobile = mobile
-    }
-
-    const { data: newUser, error } = await supabase
-      .from('users')
-      .insert(userData)
-      .select()
-      .single()
-
-    if (error) {
-      console.error('[Signup] Error:', error)
-      return { success: false, error: `Failed to create account: ${error.message}` }
-    }
-
-    console.log('[Signup] Success!')
-    setSession(newUser)
-    return { success: true, user: newUser }
-
-  } catch (error: any) {
-    console.error('[Signup] Exception:', error)
+    const res = await fetch('/api/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, username, mobile, redirectTo: `${window.location.origin}/auth` }),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) return { success: false, error: body.error || 'Signup failed' }
+    return { success: true, message: body.message }
+  } catch {
     return { success: false, error: 'Signup failed' }
   }
 }
 
-export async function login(
-  identifier: string,
-  password: string
-): Promise<{ success: boolean; error?: string; user?: User }> {
+export async function login(identifier: string, password: string): Promise<Result> {
   try {
-    const input = identifier.trim()
-    const mobile = isMobileNumber(input) ? input : null
-    const normalizedIdentifier = input.toLowerCase()
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifier, password }),
+    })
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok || !body.access_token) return { success: false, error: body.error || 'Invalid login details' }
 
-    console.log('[Login] Attempting login:', { input, isMobile: !!mobile })
-
-    // Query by mobile OR email/username
-    let query = supabase.from('users').select('*')
-    
-    if (mobile) {
-      query = query.eq('mobile', mobile)
-    } else {
-      query = query.or(`email.eq.${normalizedIdentifier},username.eq.${normalizedIdentifier}`)
-    }
-    
-    const { data: users, error: queryError } = await query
-
-    if (queryError || !users || users.length === 0) {
-      return { success: false, error: 'Invalid credentials' }
-    }
-
-    const user = users[0]
-    const providedPasswordHash = hashPassword(password.trim())
-
-    if (user.password_hash !== providedPasswordHash) {
-      return { success: false, error: 'Invalid credentials' }
-    }
-
-    await supabase
-      .from('users')
-      .update({ last_login: new Date().toISOString() })
-      .eq('id', user.id)
-
-    setSession(user)
-    console.log('[Login] Success!')
-    return { success: true, user }
-
-  } catch (error: any) {
-    console.error('[Login] Exception:', error)
+    const { error } = await supabase.auth.setSession({
+      access_token: body.access_token,
+      refresh_token: body.refresh_token,
+    })
+    if (error) return { success: false, error: 'Login failed' }
+    return await finishSignIn()
+  } catch {
     return { success: false, error: 'Login failed' }
   }
 }
 
-export async function sendPasswordResetOTP(email: string) {
-  try {
-    const { data: user } = await supabase
-      .from('users')
-      .select('id, email, username')
-      .eq('email', email.toLowerCase())
-      .single()
-
-    if (!user) {
-      return { success: false, error: 'No account found' }
-    }
-
-    const otp = Math.floor(100000 + Math.random() * 900000).toString()
-    const expiresAt = new Date()
-    expiresAt.setMinutes(expiresAt.getMinutes() + 10)
-
-    await supabase
-      .from('otp_codes')
-      .insert({
-        email: email.toLowerCase(),
-        otp_code: otp,
-        purpose: 'password_reset',
-        expires_at: expiresAt.toISOString()
-      })
-
-    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━')
-    console.log('📧 RESET CODE:', otp)
-    console.log('👤 Username:', user.username)
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━\n')
-
-    return { success: true, username: user.username }
-  } catch (error: any) {
-    return { success: false, error: 'Failed to send code' }
+// Link an existing (pre-migration) account. The old password is checked only
+// inside the database function; this call returns just true/false.
+export async function claimLegacyAccount(identifier: string, oldPassword: string): Promise<Result> {
+  const { data, error } = await supabase.rpc('claim_legacy_account', {
+    p_identifier: identifier,
+    p_old_password: oldPassword,
+  })
+  if (error || data !== true) {
+    return { success: false, error: 'Could not verify that account. Check the details, or contact the app owner.' }
   }
+  return await finishSignIn()
 }
 
-export async function verifyResetOTP(email: string, otp: string) {
-  const { data } = await supabase
-    .from('otp_codes')
-    .select('*')
-    .eq('email', email.toLowerCase())
-    .eq('otp_code', otp)
-    .eq('purpose', 'password_reset')
-    .eq('used', false)
-    .gt('expires_at', new Date().toISOString())
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .single()
-
-  if (!data) {
-    return { success: false, error: 'Invalid or expired code' }
-  }
-
-  await supabase
-    .from('otp_codes')
-    .update({ used: true })
-    .eq('id', data.id)
-
+// Password reset uses Supabase's emailed 6-digit code (Reset Password email
+// template must include {{ .Token }}). Same answer whether or not the email exists.
+export async function sendPasswordResetOTP(email: string): Promise<Result> {
+  const clean = email.trim().toLowerCase()
+  if (!clean.includes('@')) return { success: false, error: 'Enter the email address of your account' }
+  await supabase.auth.resetPasswordForEmail(clean, { redirectTo: `${window.location.origin}/auth` })
   return { success: true }
 }
 
-export async function resetPassword(email: string, newPassword: string) {
-  const { error } = await supabase
-    .from('users')
-    .update({ password_hash: hashPassword(newPassword) })
-    .eq('email', email.toLowerCase())
+export async function verifyResetOTP(email: string, otp: string): Promise<Result> {
+  const { error } = await supabase.auth.verifyOtp({
+    email: email.trim().toLowerCase(),
+    token: otp.trim(),
+    type: 'recovery',
+  })
+  return error ? { success: false, error: 'Invalid or expired code' } : { success: true }
+}
 
-  return error ? { success: false, error: 'Reset failed' } : { success: true }
+export async function resetPassword(_email: string, newPassword: string): Promise<Result> {
+  const { error } = await supabase.auth.updateUser({ password: newPassword })
+  if (error) return { success: false, error: 'Reset failed' }
+  await supabase.auth.signOut()
+  clearCache()
+  return { success: true }
+}
+
+// Confirms there is a live Supabase session and refreshes the cached profile.
+export async function ensureSession(): Promise<boolean> {
+  const profile = await loadProfile()
+  if (!profile) {
+    clearCache()
+    return false
+  }
+  setSession(profile)
+  return true
 }
 
 export function setSession(user: User) {
@@ -236,22 +148,24 @@ export function isAuthenticated(): boolean {
 }
 
 export function getCurrentUserId(): string | null {
-  const user = getSession()
-  return user?.id || null
+  return getSession()?.id || null
 }
 
 export function getCurrentUsername(): string {
-  const user = getSession()
-  return user?.username || ''
+  return getSession()?.username || ''
 }
 
 export function getCurrentEmail(): string {
-  const user = getSession()
-  return user?.email || ''
+  return getSession()?.email || ''
 }
 
-export function logout() {
+function clearCache() {
   if (typeof window === 'undefined') return
   sessionStorage.removeItem(SESSION_KEY)
   sessionStorage.removeItem(USER_KEY)
+}
+
+export function logout() {
+  clearCache()
+  void supabase.auth.signOut()
 }

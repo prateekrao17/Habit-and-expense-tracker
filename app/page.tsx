@@ -26,7 +26,7 @@ import {
   type Expense
 } from '@/lib/storage'
 import { getNotes, addNote, updateNote, deleteNote, togglePinNote, type Note } from '@/lib/notes'
-import { logout, isAuthenticated, getCurrentUsername, getCurrentUserId } from '@/lib/auth'
+import { logout, ensureSession, getCurrentUsername, getCurrentUserId } from '@/lib/auth'
 import { 
   Plus, 
   Trash2, 
@@ -104,14 +104,16 @@ export default function Home() {
 
   // Auth check
   useEffect(() => {
-    if (!isAuthenticated()) {
-      router.push('/auth')
-    } else {
-      setUsername(getCurrentUsername())
-      setUserId(getCurrentUserId() || '')
-      loadData()
-      setIsLoading(false)
-    }
+    ensureSession().then((ok) => {
+      if (!ok) {
+        router.push('/auth')
+      } else {
+        setUsername(getCurrentUsername())
+        setUserId(getCurrentUserId() || '')
+        loadData()
+        setIsLoading(false)
+      }
+    })
   }, [router])
 
   async function loadData() {

@@ -18,6 +18,8 @@ export default function AuthPage() {
   const [forgotStep, setForgotStep] = useState<ForgotStep>('email')
   
   const [identifier, setIdentifier] = useState('')
+  const [signupUsername, setSignupUsername] = useState('')
+  const [signupMobile, setSignupMobile] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [otp, setOtp] = useState('')
@@ -39,12 +41,14 @@ export default function AuthPage() {
       const result = await login(identifier, password)
       if (result.success) {
         router.push('/')
+      } else if (result.needsClaim) {
+        router.push('/claim')
       } else {
         setError(result.error || 'Login failed')
       }
     } else if (mode === 'signup') {
       if (!identifier) {
-        setError('Email, username, or mobile number is required')
+        setError('Email is required')
         setLoading(false)
         return
       }
@@ -59,16 +63,19 @@ export default function AuthPage() {
         return
       }
 
-      const result = await signup(identifier, password)
+      const result = await signup(identifier, password, signupUsername, signupMobile)
       if (result.success) {
-        router.push('/')
+        setSuccess(result.message || 'Check your email to confirm your account, then log in.')
+        setMode('login')
+        setPassword('')
+        setConfirmPassword('')
       } else {
         setError(result.error || 'Signup failed')
       }
     } else if (mode === 'forgot') {
       const result = await sendPasswordResetOTP(identifier)
       if (result.success) {
-        setSuccess('Reset code sent! Check your console.')
+        setSuccess('If an account exists for this email, a reset code has been sent. Check your email.')
         setForgotStep('verify')
       } else {
         setError(result.error || 'Failed to send reset code')
@@ -84,7 +91,15 @@ export default function AuthPage() {
     setSuccess('')
     setLoading(true)
 
-    if (forgotStep === 'verify') {
+    if (forgotStep === 'email') {
+      const result = await sendPasswordResetOTP(identifier)
+      if (result.success) {
+        setSuccess('If an account exists for this email, a reset code has been sent. Check your email.')
+        setForgotStep('verify')
+      } else {
+        setError(result.error || 'Failed to send reset code')
+      }
+    } else if (forgotStep === 'verify') {
       const result = await verifyResetOTP(identifier, otp)
       if (result.success) {
         setSuccess('Code verified!')
@@ -101,7 +116,7 @@ export default function AuthPage() {
 
       const result = await resetPassword(identifier, newPassword)
       if (result.success) {
-        alert('Password reset successful!')
+        alert('Password reset successful! Please log in with your new password.')
         setMode('login')
         setForgotStep('email')
         setIdentifier('')
@@ -257,6 +272,12 @@ export default function AuthPage() {
             </div>
           )}
 
+          {success && (
+            <div className="bg-green-500/10 border border-green-500/20 text-green-500 px-4 py-3 rounded-lg text-sm mb-4">
+              {success}
+            </div>
+          )}
+
           <form onSubmit={handleCredentialsSubmit} className="space-y-4">
             {mode === 'login' && (
               <div>
@@ -277,21 +298,49 @@ export default function AuthPage() {
             )}
 
             {mode === 'signup' && (
-              <div>
-                <label className="block text-zinc-400 text-sm font-medium mb-2">Email / Username / Mobile Number</label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
-                  <input
-                    type="text"
-                    value={identifier}
-                    onChange={(e) => setIdentifier(e.target.value)}
-                    className="w-full bg-zinc-900 border border-zinc-700 text-white pl-10 px-4 py-2.5 rounded-xl focus:outline-none focus:border-blue-500"
-                    placeholder="email / username / 10-digit mobile"
-                    required
-                    autoFocus
-                  />
+              <>
+                <div>
+                  <label className="block text-zinc-400 text-sm font-medium mb-2">Email</label>
+                  <div className="relative">
+                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
+                    <input
+                      type="email"
+                      value={identifier}
+                      onChange={(e) => setIdentifier(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-700 text-white pl-10 px-4 py-2.5 rounded-xl focus:outline-none focus:border-blue-500"
+                      placeholder="your@email.com"
+                      required
+                      autoFocus
+                    />
+                  </div>
                 </div>
-              </div>
+                <div>
+                  <label className="block text-zinc-400 text-sm font-medium mb-2">Username (optional)</label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
+                    <input
+                      type="text"
+                      value={signupUsername}
+                      onChange={(e) => setSignupUsername(e.target.value)}
+                      className="w-full bg-zinc-900 border border-zinc-700 text-white pl-10 px-4 py-2.5 rounded-xl focus:outline-none focus:border-blue-500"
+                      placeholder="username"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-zinc-400 text-sm font-medium mb-2">Mobile Number (optional)</label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" size={18} />
+                    <input
+                      type="tel"
+                      value={signupMobile}
+                      onChange={(e) => setSignupMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                      className="w-full bg-zinc-900 border border-zinc-700 text-white pl-10 px-4 py-2.5 rounded-xl focus:outline-none focus:border-blue-500"
+                      placeholder="10-digit mobile"
+                    />
+                  </div>
+                </div>
+              </>
             )}
 
             <div>
@@ -348,6 +397,16 @@ export default function AuthPage() {
                 className="w-full text-blue-500 hover:underline text-sm mt-4"
               >
                 Forgot password?
+              </button>
+            )}
+
+            {mode === 'login' && (
+              <button
+                type="button"
+                onClick={() => router.push('/claim')}
+                className="w-full text-zinc-400 hover:text-white text-sm mt-2"
+              >
+                Had an account before the update? Link it here
               </button>
             )}
 

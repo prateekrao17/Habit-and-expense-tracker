@@ -1,13 +1,18 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+// Canonical Supabase client for the whole app.
+// Values come only from the deployment environment; there are no fallbacks.
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
 if (!supabaseUrl || !supabaseKey) {
-  throw new Error('Missing Supabase environment variables')
+  throw new Error(
+    'Missing required environment variables: NEXT_PUBLIC_SUPABASE_URL and/or NEXT_PUBLIC_SUPABASE_ANON_KEY. ' +
+      'Set them in Vercel (Project Settings -> Environment Variables) or in .env.local for local development.'
+  )
 }
 
-export const supabase = createClient(supabaseUrl, supabaseKey, {
+export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseKey, {
   auth: {
     persistSession: false,
     autoRefreshToken: false,
@@ -17,6 +22,10 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
     schema: 'public'
   }
 })
+
+// Backwards-compatible accessor for modules that previously used
+// lib/supabase/client.ts. Returns the same single client instance.
+export const createSupabaseClient = (): SupabaseClient => supabase
 
 // Test connection
 if (typeof window !== 'undefined') {

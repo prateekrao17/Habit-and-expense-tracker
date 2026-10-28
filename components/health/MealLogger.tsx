@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
-import { createSupabaseClient } from '@/lib/supabase/client'
+import { createSupabaseClient } from '@/lib/supabase'
 
 const MEAL_TIMES = [
   { value: 'breakfast', label: 'Breakfast' },

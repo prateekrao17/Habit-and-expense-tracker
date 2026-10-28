@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select } from '@/components/ui/select'
 import { GoalType } from '@/lib/supabase/types'
-import { createSupabaseClient } from '@/lib/supabase/client'
+import { createSupabaseClient } from '@/lib/supabase'
 
 interface AddHabitModalProps {
   open: boolean

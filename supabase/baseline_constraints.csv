@@ -1,0 +1,35 @@
+table_name,constraint_type,column_name,ref_table,ref_column
+users,UNIQUE,email,users,email
+users,PRIMARY KEY,id,users,id
+users,PRIMARY KEY,id,users,id
+users,UNIQUE,username,users,username
+otp_codes,PRIMARY KEY,id,otp_codes,id
+habits,PRIMARY KEY,id,habits,id
+habits,FOREIGN KEY,user_id,users,id
+notes,PRIMARY KEY,id,notes,id
+notes,FOREIGN KEY,user_id,users,id
+habit_completions,FOREIGN KEY,habit_id,habits,id
+habit_completions,PRIMARY KEY,id,habit_completions,id
+habit_completions,FOREIGN KEY,user_id,users,id
+expenses,PRIMARY KEY,id,expenses,id
+expenses,FOREIGN KEY,user_id,users,id
+users,CHECK,null,null,null
+users,CHECK,null,null,null
+users,CHECK,null,null,null
+users,CHECK,null,null,null
+otp_codes,CHECK,null,null,null
+otp_codes,CHECK,null,null,null
+otp_codes,CHECK,null,null,null
+otp_codes,CHECK,null,null,null
+habits,CHECK,null,null,null
+habits,CHECK,null,null,null
+habits,CHECK,null,null,null
+notes,CHECK,null,null,null
+notes,CHECK,null,null,null
+habit_completions,CHECK,null,null,null
+habit_completions,CHECK,null,null,null
+habit_completions,CHECK,null,null,null
+habit_completions,CHECK,null,null,null
+expenses,CHECK,null,null,null
+expenses,CHECK,null,null,null
+expenses,CHECK,null,null,null

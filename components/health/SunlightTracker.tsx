@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Sun } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { createSupabaseClient } from '@/lib/supabase/client'
+import { createSupabaseClient } from '@/lib/supabase'
 
 /**
  * SunlightTracker Component
